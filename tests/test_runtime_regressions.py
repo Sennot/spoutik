@@ -101,9 +101,17 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("object->setObjectColor(state.mainColor)", self.layout)
         self.assertIn("object->setChildColor(state.detailColor)", self.layout)
 
-    def test_removed_deco_does_not_depend_on_visible_object_caches(self):
-        self.assertNotIn("m_visibleObjects", self.layout)
-        self.assertRegex(self.layout, r"for \(auto& entry : m_entries\)[\s\S]*touchEntry\(entry\)")
+    def test_hot_path_indexes_only_gd_camera_candidates(self):
+        apply_block = re.search(
+            r"void LayoutMirror::applyLayoutOverrides\(PlayLayer\* real\) \{([\s\S]*?)\n\}",
+            self.layout,
+        )
+        self.assertIsNotNone(apply_block)
+        block = apply_block.group(1)
+        self.assertIn("m_entryIndex.find(object)", block)
+        self.assertIn("touchVisibleVector(real->m_visibleObjects)", block)
+        self.assertIn("touchVisibleVector(real->m_visibleObjects2)", block)
+        self.assertNotRegex(block, r"for \(auto& entry : m_entries\)")
 
     def test_xdbot_addobject_visual_mutation_is_preserved(self):
         sequence = r"object->m_activeMainColorID = -1;\s*object->m_activeDetailColorID = -1;\s*object->m_detailUsesHSV = false;\s*object->m_baseUsesHSV = false;\s*object->m_hasNoGlow = true;\s*object->m_isHide = object->m_objectID == 2065;\s*object->setOpacity\(object->m_objectID == 2065 \? 0 : 255\);\s*object->setVisible\(object->m_objectID != 2065\);"
@@ -115,7 +123,8 @@ class RuntimeRegressionTests(unittest.TestCase):
 
     def test_shader_pass_is_bypassed_only_during_layout_rerender(self):
         self.assertIn("LayoutMirror::get().isRenderingLayout()", self.main)
-        self.assertIn("cocos2d::CCLayer::visit()", self.main)
+        self.assertIn("m_gameLayer->m_inShaderParent->visit()", self.main)
+        self.assertNotIn("cocos2d::CCLayer::visit()", self.main)
         self.assertIn("ShaderLayer::visit();", self.main)
 
     def test_spout_capture_precedes_layout_rerender(self):

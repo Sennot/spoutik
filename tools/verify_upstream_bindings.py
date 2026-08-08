@@ -27,6 +27,7 @@ for label, pattern in {
     "GJBaseGameLayer::m_objects": r"cocos2d::CCArray\* m_objects;",
     "GJBaseGameLayer::m_visibleObjects": r"gd::vector<GameObject\*> m_visibleObjects;",
     "GJBaseGameLayer::m_visibleObjects2": r"gd::vector<GameObject\*> m_visibleObjects2;",
+    "GJBaseGameLayer::m_inShaderParent": r"cocos2d::CCNode\* m_inShaderParent;",
     "GJBaseGameLayer::m_background": r"cocos2d::CCSprite\* m_background;",
     "GJBaseGameLayer::m_groundLayer": r"GJGroundLayer\* m_groundLayer;",
     "GJBaseGameLayer::m_groundLayer2": r"GJGroundLayer\* m_groundLayer2;",
@@ -50,6 +51,7 @@ for label, pattern in {
     "GameObject::m_isColorSpriteBlack": r"bool m_isColorSpriteBlack;",
     "GameObject::setObjectColor": r"virtual void setObjectColor\(cocos2d::ccColor3B const& color\)",
     "GameObject::setChildColor": r"virtual void setChildColor\(cocos2d::ccColor3B const& color\)",
+    "ShaderLayer::m_gameLayer": r"class ShaderLayer[\s\S]*?GJBaseGameLayer\* m_gameLayer;",
 }.items():
     require(gd, label, pattern)
 

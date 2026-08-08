@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.8
+
+- Replaced the per-frame scan of every classified level object with O(visible camera candidates) lookups through the complete exact XDBot object map.
+- Fixed shader-heavy levels by drawing GD's live `m_inShaderParent` directly during the local Layout pass instead of replaying ShaderLayer's decorated render-texture.
+- Preserved the untouched shader output in the Spout frame; the shader bypass still applies only after capture and only to the game window redraw.
+
 ## v0.1.7
 - Replaced the failed `(objectID, m_startPosition)` layout mapping with an exact serialized-record plan bound during the authoritative `PlayLayer::addObject` path.
 - Removed decoration is now masked from the complete classified object list instead of relying on the two transient visible-object caches.

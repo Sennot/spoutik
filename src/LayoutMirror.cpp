@@ -147,6 +147,7 @@ void LayoutMirror::clear() {
     m_real = nullptr;
     m_modifiedString.clear();
     m_entries.clear();
+    m_entryIndex.clear();
     m_pendingByObjectID.clear();
     m_layoutPalette.clear();
     m_savedStates.clear();
@@ -189,6 +190,7 @@ void LayoutMirror::buildLayoutPlan(GJGameLevel* level) {
     m_originalRecordCount = originalRecords.size();
     m_transformedRecordCount = transformedRecords.size();
     m_entries.reserve(originalRecords.size());
+    m_entryIndex.reserve(originalRecords.size());
 
     // Consume the upstream palette itself instead of copying its RGB values.
     // Channel IDs are the six GD special channels emitted by XDBot newColors.
@@ -246,7 +248,9 @@ void LayoutMirror::observeObject(PlayLayer* real, GameObject* object) {
         ++m_unclassifiedObjectCount;
     }
 
+    auto const index = m_entries.size();
     m_entries.push_back({ object, keep, forceHidden, 0 });
+    m_entryIndex[object] = index;
 }
 
 void LayoutMirror::finishFor(PlayLayer* real) {
@@ -377,12 +381,21 @@ void LayoutMirror::applyLayoutOverrides(PlayLayer* real) {
     if (m_frameSerial == 0) ++m_frameSerial;
     m_savedStates.clear();
 
-    // Scan the complete classified object set. Restricting removed decoration
-    // to GD's two visible caches leaked nodes whenever another mod or a camera
-    // transition changed cache membership between the two render passes.
-    for (auto& entry : m_entries) {
-        if (entry.keep || (entry.object && entry.object->isVisible())) touchEntry(entry);
-    }
+    // GD already maintains the camera candidate sets used by its own object
+    // renderer. Resolve those pointers through the complete exact XDBot map
+    // instead of scanning every serialized object. This keeps the hot path
+    // proportional to what can be drawn, even on 100k+ object levels. The two
+    // sets are intentionally both consumed and frameSerial de-duplicates them.
+    auto touchVisibleVector = [&](auto const& objects) {
+        for (auto* object : objects) {
+            if (!object) continue;
+            auto found = m_entryIndex.find(object);
+            if (found == m_entryIndex.end()) continue;
+            touchEntry(m_entries[found->second]);
+        }
+    };
+    touchVisibleVector(real->m_visibleObjects);
+    touchVisibleVector(real->m_visibleObjects2);
     applyScenePalette(real);
 }
 

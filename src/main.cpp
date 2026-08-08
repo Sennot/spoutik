@@ -59,9 +59,15 @@ class $modify(SpoutLayoutShaderLayer, ShaderLayer) {
 
     void visit() {
         if (LayoutMirror::get().isRenderingLayout()) {
-            // Keep the layer's children/order/camera transform, but bypass the
-            // render-texture shader pass for the local Layout view only.
-            return cocos2d::CCLayer::visit();
+            // ShaderLayer's own children contain the render-texture output of
+            // the decorated pass. Visiting CCLayer here redraws that cached
+            // texture over Layout. Draw the actual in-shader object parent
+            // directly instead: it preserves the z-range while applying no
+            // screen shader to the local view.
+            if (m_gameLayer && m_gameLayer->m_inShaderParent) {
+                m_gameLayer->m_inShaderParent->visit();
+            }
+            return;
         }
         ShaderLayer::visit();
     }

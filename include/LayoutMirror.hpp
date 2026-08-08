@@ -74,6 +74,7 @@ private:
     PlayLayer* m_real = nullptr;
     std::string m_modifiedString;
     std::vector<LayoutEntry> m_entries;
+    std::unordered_map<GameObject*, std::size_t> m_entryIndex;
     std::unordered_map<int, std::deque<PendingRecord>> m_pendingByObjectID;
     std::unordered_map<int, cocos2d::ccColor3B> m_layoutPalette;
     std::vector<SavedVisualState> m_savedStates;

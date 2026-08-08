@@ -51,9 +51,10 @@ While the real decorated layer performs its ordinary `addObject` calls, each liv
 
 During the local pass:
 
-- removed objects are hidden using the complete classified object list, independent of GD's transient visible-object caches;
+- the complete exact map is indexed by live `GameObject*`, while only GD's two current camera-candidate vectors are touched per frame; this keeps 100k+ object levels out of the linear hot path without changing any XDBot keep/remove decision;
 - retained objects receive the pinned XDBot `addObject` state plus immediate white/black main/detail sprite colors;
 - BG, G1, G2, LINE, MG1 and MG2 receive every special color from pinned XDBot `newColors`;
+- objects inside GD's shader z-range are visited directly from `m_inShaderParent`, so the decorated shader render-texture cannot cover the local Layout pass;
 - all touched fields, colors, opacity and visibility are restored in the same frame after the local redraw.
 
 ## StartPos / practice design
@@ -75,7 +76,7 @@ The sender path intentionally has no CPU frame extraction:
 
 Turning **Enable dual view** off also stops the mirror tick and local redraw for the current level.
 
-The unavoidable additional cost is one extra local scene visit plus a scan of the classified object pointers. There is no second simulation. The original decorated frame must still be rendered once because OBS needs it, so the local Layout output cannot honestly cost literally zero frame time on every level or mod stack.
+The unavoidable additional cost is one extra local scene visit plus O(visible camera candidates) indexed object overrides. There is no second simulation and no per-frame scan of the full serialized level. The original decorated frame must still be rendered once because OBS needs it, so the local Layout output cannot honestly cost literally zero frame time on every level or mod stack.
 
 For an RTX 3090 setup, put **GeometryDash.exe and OBS on the same RTX 3090** in Windows Graphics Settings / NVIDIA Control Panel; cross-adapter sharing is exactly what this design avoids.
 
@@ -119,7 +120,7 @@ Add an OBS **Spout2 Capture** source and select sender **Geometry Dash Full** (o
 
 The frame sent to Spout is intentionally captured from the already-rendered default framebuffer, so UI/HUD mods generally do not need explicit support.
 
-Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. At presentation time the untouched decorated framebuffer is sent to Spout first; then the complete classified object set and full XDBot special palette are temporarily applied, the same scene is visited again for the local backbuffer, and every touched visual field is restored immediately. ShaderLayer's shader pass is bypassed only during this local second visit.
+Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. In v0.1.8 the local hot path resolves only GD's camera candidates through that complete map, and the shader z-range is drawn directly instead of replaying the decorated shader texture. At presentation time the untouched decorated framebuffer is sent to Spout first; then the indexed Layout overrides and full XDBot special palette are temporarily applied, the same scene is visited again for the local backbuffer, and every touched visual field is restored immediately.
 
 ## Credits / licensing
 
