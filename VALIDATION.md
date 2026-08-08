@@ -15,10 +15,11 @@ Checks the source shape itself, including:
 - `PlayLayer` / `GJBaseGameLayer` hook signatures used by this project;
 - final `CCEGLView::swapBuffers` pre-hook with `Priority::Last`;
 - Spout send occurring before the local Layout redraw and before the real swap;
-- default-FBO `SendFbo(0, ...)`;
-- rejection of Spout CPU fallback;
+- documented default-FBO `SendFbo(0, 0, 0, ...)`;
+- rejection of actual Spout CPU fallback without misclassifying `GetGLDX()==false`;
 - private `GJGameLevel` mirror cloning plus mirror `levelComplete()`, `commitJumps()`, `updateAttempts()` and `onQuit()` suppression;
-- autonomous hidden-layer scheduler/delayed-start suppression, preventing double simulation ticks;
+- `Priority::VeryLate` mirror entry isolation plus `Priority::Last` side-effect guards;
+- all hidden-layer scheduler selectors removed before release and after start/reset/checkpoint changes;
 - the master enable flag stopping both mirror ticking and local redraw;
 - StartPos mapping inside the mirror object graph rather than pointer cross-copy;
 - Spout ABI prefix ordering;

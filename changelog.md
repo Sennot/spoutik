@@ -1,3 +1,11 @@
+# v0.1.4
+- Fixed Spout sender self-disabling on valid GPU systems: `GetGLDX()` is legacy NV_DX_interop2 hardware compatibility, not the sender sharing-method flag. GPU-only enforcement now rejects only `GetCPU() == true`.
+- Switched default framebuffer capture to Spout's documented `SendFbo(0, 0, 0, ...)` path and made transient send failures retry instead of disabling the session.
+- Added sender diagnostics with actual Spout width/height, CPU mode rejection and legacy GL/DX compatibility status.
+- Isolated the hidden Layout `PlayLayer` from ordinary third-party gameplay hooks using Geode's preserved hook-priority chain: real-layer control hooks are `Priority::VeryLate`, mirror-only guards remain `Priority::Last`.
+- Replaced update-only unscheduling with `CCScheduler::unscheduleAllForTarget` and quiesce the hidden target before release and after start/reset/checkpoint operations, preventing delayed callbacks from hitting a destroyed mirror.
+- Added runtime regression tests for the Spout `GetGLDX` mistake, retry behavior, hook isolation and scheduler lifetime.
+
 # v0.1.3
 - Fixed Geode metadata compatibility: `mod.json` now uses `"geode": "5.8.2"` (no leading `v`).
 - Kept `sdk: v5.8.2` in GitHub Actions, because the action input is a Git tag while `mod.json` is an SDK semantic version.

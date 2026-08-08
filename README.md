@@ -14,7 +14,7 @@ The capture is placed at the presentation boundary rather than on individual HUD
 
 1. Geometry Dash performs its ordinary frame render once.
 2. A `cocos2d::CCEGLView::swapBuffers()` **pre-hook** at `Priority::Last` runs immediately before the real backbuffer swap.
-3. The current default OpenGL framebuffer is sent to Spout with `SendFbo(0, width, height, ...)`.
+3. The current default OpenGL framebuffer is sent to Spout with `SendFbo(0, 0, 0, ...)`.
 4. Only after the send, the local backbuffer is cleared and redrawn with the stripped Layout mirror plus the authoritative real HUD / scene overlays.
 5. The original `swapBuffers()` presents that Layout frame to the player.
 
@@ -78,8 +78,9 @@ The sender path intentionally has no CPU frame extraction:
 - no screenshots;
 - no software encoder;
 - no per-frame CPU pixel buffer;
-- Spout uses default-FBO sharing through its GL/DX path;
-- after sender initialization, if Spout reports CPU mode or no GL/DX interop, this mod disables sending for the session rather than silently accepting a CPU fallback;
+- Spout uses its documented default-FBO path `SendFbo(0, 0, 0, ...)`;
+- after sender initialization, the mod rejects only `GetCPU() == true`, which is Spout's actual sender sharing-method flag;
+- `GetGLDX()` is logged only as legacy NVIDIA `NV_DX_interop2` compatibility information; `false` is **not** treated as CPU fallback;
 - Release + LTO is enabled in GitHub Actions.
 
 Turning **Enable dual view** off also stops the mirror tick and local redraw for the current level.
@@ -128,7 +129,7 @@ Add an OBS **Spout2 Capture** source and select sender **Geometry Dash Full** (o
 
 The frame sent to Spout is intentionally captured from the already-rendered default framebuffer, so UI/HUD mods generally do not need explicit support.
 
-The Layout side is more subtle: the mirror is a real hidden `PlayLayer`, therefore third-party mods that hook `PlayLayer::init/startGame/update` may also observe mirror construction/simulation. The mod narrows `GameManager::m_playLayer/m_gameLayer` to the mirror only inside tight RAII scopes and restores the real layer immediately, but a third-party mod with global side effects may still need a compatibility exception. This is the main architectural tradeoff required to reproduce a pre-load XDBot Layout world without destroying the original OBS world.
+The Layout side is more subtle because the mirror is a real hidden `PlayLayer`. Starting with v0.1.4, mirror creation/ticking is initiated from `Priority::VeryLate` hooks. Geode preserves the current hook priority across same-thread nested calls, so ordinary third-party gameplay hooks still run normally for the real authoritative layer but are skipped for nested mirror calls. Mirror-only audio/stat/exit/XDBot guards remain at `Priority::Last`. The hidden target also has every Cocos scheduler selector removed before release and after start/reset/checkpoint changes. This greatly reduces duplicate sessions, physics patches, delayed callbacks and global side effects from mods that hook gameplay.
 
 ## Credits / licensing
 

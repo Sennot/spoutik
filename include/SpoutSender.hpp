@@ -29,4 +29,6 @@ private:
     std::string m_name;
     bool m_loadAttempted = false;
     bool m_cpuFallbackRejected = false;
+    bool m_statusLogged = false;
+    unsigned int m_sendFailures = 0;
 };

@@ -90,28 +90,50 @@ bool SpoutSender::sendDefaultFramebuffer() {
     if (!ensureLoaded()) return false;
     refreshName();
 
-    // SpoutLibrary explicitly supports default framebuffer by FBO ID 0.
-    // Prefer CCDirector's pixel size: another overlay may legitimately leave a
-    // smaller GL viewport active even though the default framebuffer is full-size.
-    auto size = cocos2d::CCDirector::get()->getWinSizeInPixels();
-    auto width = static_cast<unsigned int>(std::max(size.width, 1.f));
-    auto height = static_cast<unsigned int>(std::max(size.height, 1.f));
+    // SpoutLibrary's documented default-framebuffer path is exactly
+    // SendFbo(0, 0, 0, ...). Passing zero dimensions lets Spout derive the
+    // actual WGL framebuffer size and avoids DPI / viewport-size mismatches.
     auto invert = Mod::get()->getSettingValue<bool>("invert-spout");
-    auto sent = m_spout->SendFbo(0, width, height, invert);
+    auto sent = m_spout->SendFbo(0, 0, 0, invert);
 
-    // Optimization is a hard requirement for this mod: never silently fall
-    // back to Spout's CPU sharing path. Spout exposes the active sender mode
-    // through GetCPU()/GetGLDX() after initialization.
-    if (m_spout->IsInitialized() && (m_spout->GetCPU() || !m_spout->GetGLDX())) {
+    if (!sent) {
+        ++m_sendFailures;
+        // A transient first-frame failure is recoverable. Do not permanently
+        // disable Spout merely because the sender was not ready on one swap.
+        if (m_sendFailures == 1 || (m_sendFailures % 300) == 0) {
+            log::warn("Spout SendFbo failed (attempt {}); will retry", m_sendFailures);
+        }
+        return false;
+    }
+
+    m_sendFailures = 0;
+    if (!m_spout->IsInitialized()) return true;
+
+    // GetCPU() is the actual sender sharing-method flag. GetGLDX() is only
+    // Spout's legacy NVIDIA NV_DX_interop2 hardware-compatibility query; a
+    // false GetGLDX() does NOT mean that the sender fell back to CPU sharing.
+    // Optimization remains a hard requirement: reject only a real CPU sender.
+    if (m_spout->GetCPU()) {
         log::error(
-            "Spout did not select GL/DX GPU texture sharing. "
-            "Sender disabled for this session; put Geometry Dash and OBS on the same GPU."
+            "Spout selected CPU sharing. Sender disabled for this session; "
+            "GPU-only sharing is required by this mod."
         );
         m_spout->ReleaseSender(0);
         m_cpuFallbackRejected = true;
         return false;
     }
-    return sent;
+
+    if (!m_statusLogged) {
+        m_statusLogged = true;
+        log::info(
+            "Spout GPU sender active: {} ({}x{}, legacy GL/DX compatibility={})",
+            m_spout->GetName() ? m_spout->GetName() : m_name.c_str(),
+            m_spout->GetWidth(),
+            m_spout->GetHeight(),
+            m_spout->GetGLDX()
+        );
+    }
+    return true;
 #endif
 }
 

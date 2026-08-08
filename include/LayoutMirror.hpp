@@ -45,6 +45,7 @@ private:
 
     void releaseMirror();
     void syncRuntimeFlags(PlayLayer* real);
+    void quiesceMirrorScheduler();
     void syncStartPos(PlayLayer* real);
     void renderSceneSiblings(cocos2d::CCScene* scene, PlayLayer* real, bool before);
 

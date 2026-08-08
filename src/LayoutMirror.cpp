@@ -36,10 +36,25 @@ LayoutMirror::GameManagerScope::~GameManagerScope() {
     gm->m_gameLayer = oldGame;
 }
 
+void LayoutMirror::quiesceMirrorScheduler() {
+    if (!m_mirror) return;
+    // A hidden PlayLayer must never receive autonomous scheduler callbacks.
+    // unscheduleAllForTarget includes update and custom selectors such as a
+    // delayed start. Manual direct calls from the authoritative layer still work.
+    if (auto* scheduler = cocos2d::CCScheduler::get()) {
+        scheduler->unscheduleAllForTarget(m_mirror);
+    }
+}
+
 void LayoutMirror::releaseMirror() {
     // Release PlayLayer first because it can retain/use its GJGameLevel during
     // destruction. We keep one explicit retain on the private level copy too.
+    auto hadMirror = m_mirror != nullptr;
     if (m_mirror) {
+        // Remove every scheduler callback before the retained hidden layer can
+        // be destroyed. This prevents delayed callbacks from targeting a freed
+        // PlayLayer after leaving/changing levels.
+        quiesceMirrorScheduler();
         m_mirror->release();
         m_mirror = nullptr;
     }
@@ -52,6 +67,7 @@ void LayoutMirror::releaseMirror() {
     m_lastMirrorStartPos = nullptr;
     m_startPosSynced = false;
     m_modifiedString.clear();
+    if (hadMirror) log::debug("Layout mirror released cleanly");
 }
 
 void LayoutMirror::createFor(PlayLayer* real, GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
@@ -106,10 +122,9 @@ void LayoutMirror::createFor(PlayLayer* real, GJGameLevel* level, bool useReplay
 
     mirror->retain();
     m_mirror = mirror;
-    // PlayLayer::init normally schedules update on Cocos' global scheduler.
-    // This mirror is manually lockstepped from the real layer; leaving that
-    // registration active would add scheduler overhead and risk a double tick.
-    m_mirror->unscheduleUpdate();
+    // PlayLayer::init can schedule update plus custom/delayed selectors. The
+    // mirror is manually lockstepped, so remove all callbacks for this target.
+    quiesceMirrorScheduler();
     m_mirror->m_audioPaused = true;
     m_mirror->m_isSilent = true;
     m_mirror->m_musicPrepared = true;
@@ -203,13 +218,14 @@ void LayoutMirror::startFromReal(PlayLayer* real) {
         // startMusic() is intercepted for the mirror, so this initializes the
         // gameplay state without creating a second FMOD timeline.
         m_mirror->startGame();
-        // startGame may schedule update again on some game paths/mod stacks.
-        m_mirror->unscheduleUpdate();
+        // startGame may schedule update/delayed selectors again.
+        quiesceMirrorScheduler();
         m_mirror->m_audioPaused = true;
         m_mirror->m_isSilent = true;
         m_mirror->m_gameState.m_levelTime = real->m_gameState.m_levelTime;
         m_mirror->m_timePlayed = real->m_timePlayed;
     }
+    log::debug("Layout mirror start synchronized to authoritative PlayLayer");
     m_starting = false;
 }
 
@@ -256,6 +272,7 @@ void LayoutMirror::resetFromReal(PlayLayer* real) {
     {
         GameManagerScope scope(m_mirror);
         m_mirror->resetLevel();
+        quiesceMirrorScheduler();
         m_mirror->m_audioPaused = true;
         m_mirror->m_isSilent = true;
         m_mirror->m_gameState.m_levelTime = real->m_gameState.m_levelTime;
@@ -271,6 +288,7 @@ void LayoutMirror::markCheckpointFromReal(PlayLayer* real) {
     {
         GameManagerScope scope(m_mirror);
         m_mirror->markCheckpoint();
+        quiesceMirrorScheduler();
     }
     m_checkpointing = false;
 }
@@ -282,6 +300,7 @@ void LayoutMirror::removeCheckpointFromReal(PlayLayer* real, bool first) {
     {
         GameManagerScope scope(m_mirror);
         m_mirror->removeCheckpoint(first);
+        quiesceMirrorScheduler();
     }
     m_removingCheckpoint = false;
 }
@@ -293,6 +312,7 @@ void LayoutMirror::removeAllCheckpointsFromReal(PlayLayer* real) {
     {
         GameManagerScope scope(m_mirror);
         m_mirror->removeAllCheckpoints();
+        quiesceMirrorScheduler();
     }
     m_removingCheckpoint = false;
 }

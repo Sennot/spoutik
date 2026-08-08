@@ -9,9 +9,20 @@
 
 using namespace geode::prelude;
 
-// XDBot's integrity bypass is active only while the stripped mirror is being
-// constructed. The authoritative decorated PlayLayer keeps normal integrity.
+// The mirror is created/ticked from VeryLate hooks. Geode preserves the current
+// hook priority across same-thread nested calls, so calls made for the hidden
+// PlayLayer skip ordinary third-party gameplay hooks. Last-priority guard hooks
+// below still intercept mirror-only side effects (audio/stats/exit/addObject).
+// This keeps every normal mod hook active for the real authoritative PlayLayer
+// while making the second visual world much less visible to other gameplay mods.
+
 class $modify(SpoutLayoutLevelTools, LevelTools) {
+    static void onModify(auto& self) {
+        if (!self.setHookPriorityPre("LevelTools::verifyLevelIntegrity", Priority::Last)) {
+            log::warn("Could not isolate LevelTools::verifyLevelIntegrity for layout mirror");
+        }
+    }
+
     static bool verifyLevelIntegrity(gd::string levelString, int objectCount) {
         if (LayoutMirror::get().integrityBypass()) return true;
         return LevelTools::verifyLevelIntegrity(levelString, objectCount);
@@ -19,11 +30,44 @@ class $modify(SpoutLayoutLevelTools, LevelTools) {
 };
 
 class $modify(SpoutLayoutPlayLayer, PlayLayer) {
+    static void onModify(auto& self) {
+        // Entry/control hooks run after ordinary gameplay mods have handled the
+        // REAL layer. Nested mirror calls inherit this VeryLate priority and
+        // therefore bypass those ordinary hooks.
+        for (auto name : {
+            "PlayLayer::init",
+            "PlayLayer::startGame",
+            "PlayLayer::resetLevel",
+            "PlayLayer::markCheckpoint",
+            "PlayLayer::removeCheckpoint",
+            "PlayLayer::removeAllCheckpoints",
+        }) {
+            if (!self.setHookPriorityPre(name, Priority::VeryLate)) {
+                log::warn("Could not set mirror-isolation priority for {}", name);
+            }
+        }
+
+        // These hooks must remain reachable from a VeryLate nested mirror call.
+        // Priority::Last gives us a final guard before the original function.
+        for (auto name : {
+            "PlayLayer::prepareMusic",
+            "PlayLayer::startMusic",
+            "PlayLayer::startGameDelayed",
+            "PlayLayer::addObject",
+            "PlayLayer::levelComplete",
+            "PlayLayer::commitJumps",
+            "PlayLayer::updateAttempts",
+            "PlayLayer::onQuit",
+        }) {
+            if (!self.setHookPriorityPre(name, Priority::Last)) {
+                log::warn("Could not set mirror guard priority for {}", name);
+            }
+        }
+    }
+
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         auto& mirrors = LayoutMirror::get();
         if (mirrors.isCreating()) {
-            // The caller already swapped m_levelString to XDBot's fully
-            // preprocessed level. Do not recursively create another mirror.
             return PlayLayer::init(level, useReplay, dontCreateObjects);
         }
 
@@ -35,9 +79,6 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
     void prepareMusic(bool dontWait) {
         auto& mirrors = LayoutMirror::get();
         if (mirrors.isCreating() || mirrors.isMirror(this)) {
-            // Never let construction/simulation of the visual-only layer touch
-            // FMOD. The real PlayLayer remains the only music timeline, which
-            // is critical for StartPos song offsets.
             m_audioPaused = true;
             m_isSilent = true;
             m_musicPrepared = true;
@@ -67,12 +108,7 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
 
     void startGameDelayed() {
         auto& mirrors = LayoutMirror::get();
-        if (mirrors.isCreating() || mirrors.isMirror(this)) {
-            // PlayLayer::init may schedule this callback even though the mirror
-            // is not attached to the running scene. The real PlayLayer alone
-            // decides when gameplay starts; startFromReal() starts the mirror.
-            return;
-        }
+        if (mirrors.isCreating() || mirrors.isMirror(this)) return;
         PlayLayer::startGameDelayed();
     }
 
@@ -104,32 +140,19 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
 
     void levelComplete() {
         auto& mirrors = LayoutMirror::get();
-        if (mirrors.isCreating() || mirrors.isMirror(this)) {
-            // The mirror is visual-only. Never let an independently simulated
-            // layer submit completion, rewards, stats or achievements.
-            return;
-        }
+        if (mirrors.isCreating() || mirrors.isMirror(this)) return;
         PlayLayer::levelComplete();
     }
 
     void commitJumps() {
         auto& mirrors = LayoutMirror::get();
-        if (mirrors.isCreating() || mirrors.isMirror(this)) {
-            // incrementJumps() is inline on Win64, but persistent jump totals
-            // are committed through this hookable PlayLayer function. Keep the
-            // mirror's temporary counters private and never publish them.
-            return;
-        }
+        if (mirrors.isCreating() || mirrors.isMirror(this)) return;
         PlayLayer::commitJumps();
     }
 
     void updateAttempts() {
         auto& mirrors = LayoutMirror::get();
-        if (mirrors.isCreating() || mirrors.isMirror(this)) {
-            // resetLevel() invokes attempt bookkeeping. The hidden visual world
-            // must not double-count attempts or touch global gameplay stats.
-            return;
-        }
+        if (mirrors.isCreating() || mirrors.isMirror(this)) return;
         PlayLayer::updateAttempts();
     }
 
@@ -157,8 +180,6 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
 
     void onQuit() {
         auto& mirrors = LayoutMirror::get();
-        // The mirror is not a real scene. Never allow a mirror-side quit path
-        // (including one triggered by another mod) to replace/leave the scene.
         if (mirrors.isCreating() || mirrors.isMirror(this)) return;
         mirrors.destroyFor(this);
         PlayLayer::onQuit();
@@ -166,14 +187,23 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
 };
 
 class $modify(SpoutLayoutBaseGameLayer, GJBaseGameLayer) {
+    static void onModify(auto& self) {
+        for (auto name : {
+            "GJBaseGameLayer::update",
+            "GJBaseGameLayer::handleButton",
+        }) {
+            if (!self.setHookPriorityPre(name, Priority::VeryLate)) {
+                log::warn("Could not set mirror-isolation priority for {}", name);
+            }
+        }
+    }
+
     void update(float dt) {
         auto* play = typeinfo_cast<PlayLayer*>(this);
         auto& mirrors = LayoutMirror::get();
 
-        // The hidden PlayLayer can register itself with Cocos' scheduler during
-        // init even though it is not in the scene. Ignore those autonomous
-        // callbacks: the mirror is advanced exactly once, explicitly, from the
-        // real PlayLayer below. During that explicit call m_stepping is true.
+        // A scheduler callback for the mirror should normally be impossible
+        // after quiesceMirrorScheduler(). Keep this guard as a final fallback.
         if (play && mirrors.isMirror(play)) {
             if (mirrors.isStepping()) return GJBaseGameLayer::update(dt);
             return;
@@ -195,19 +225,14 @@ class $modify(SpoutLayoutBaseGameLayer, GJBaseGameLayer) {
 
 class $modify(SpoutLayoutEGLView, cocos2d::CCEGLView) {
     static void onModify(auto& self) {
-        // swapBuffers is the final presentation boundary. Priority::Last on the
-        // PRE side puts our capture after ordinary pre-swap hooks but before the
-        // actual buffer swap, so post-draw overlays are included too.
         if (!self.setHookPriorityPre("cocos2d::CCEGLView::swapBuffers", Priority::Last)) {
             log::warn("Could not set CCEGLView::swapBuffers hook to Priority::Last");
         }
     }
 
     void swapBuffers() {
-        // Immediately before presentation, the default framebuffer contains the
-        // complete untouched game output: level decoration/shaders/camera, HUD,
-        // menus, pause/editor UI and mod overlays drawn during the frame. Spout
-        // receives this frame first; only the local backbuffer is then replaced.
+        // Send the fully decorated frame first. Only afterwards replace the
+        // local backbuffer with the stripped player view.
         SpoutSender::get().sendDefaultFramebuffer();
 
         auto* director = cocos2d::CCDirector::get();
