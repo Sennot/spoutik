@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SpoutLayoutCapture VERSION 0.1.2 LANGUAGES CXX)
+project(SpoutLayoutCapture VERSION 0.1.5 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,12 +11,13 @@ endif()
 
 set(XDBOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/xdbot")
 set(SPOUT_DLL "${CMAKE_CURRENT_SOURCE_DIR}/resources/spout/SpoutLibrary.dll")
+set(SPOUT_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/vendor/spout/SpoutLibrary.h")
 
 if (NOT EXISTS "${XDBOT_DIR}/layout_mode.hpp" OR NOT EXISTS "${XDBOT_DIR}/layout_mode.cpp")
     message(FATAL_ERROR "XDBot Layout Mode source is missing. Run: python tools/bootstrap_deps.py")
 endif()
-if (WIN32 AND NOT EXISTS "${SPOUT_DLL}")
-    message(FATAL_ERROR "SpoutLibrary.dll is missing. Run: python tools/bootstrap_deps.py")
+if (WIN32 AND (NOT EXISTS "${SPOUT_DLL}" OR NOT EXISTS "${SPOUT_HEADER}"))
+    message(FATAL_ERROR "SpoutLibrary.dll/header is missing. Run: python tools/bootstrap_deps.py")
 endif()
 
 add_library(${PROJECT_NAME} SHARED
@@ -29,6 +30,7 @@ add_library(${PROJECT_NAME} SHARED
 target_include_directories(${PROJECT_NAME} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/vendor/xdbot"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/spout"
 )
 
 if (WIN32)

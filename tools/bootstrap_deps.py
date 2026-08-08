@@ -101,27 +101,27 @@ def transform_xdbot(raw_hpp: str, raw_cpp: str) -> tuple[str, str, str]:
 
 
 def validate_xdbot_addobject(raw_cpp: str) -> None:
-    """Prove the mirror-side post-add mutation block matches pinned XDBot.
+    """Prove our local render mutation retains pinned XDBot addObject styling.
 
-    The upstream hook has one project-specific gate (`Global::layoutMode`) that
-    we intentionally replace with LayoutMirror::layoutContext. Everything from
-    the excluded-trigger test through setVisible must remain statement-identical.
+    v0.1.5 no longer creates a second PlayLayer; excluded/deco decisions come
+    from the exact getModifiedString output. The post-add visual mutation still
+    must remain statement-identical to upstream for objects that survive it.
     """
-    start_token = "if (excludedTriggerIDs.contains(obj->m_objectID)) return;"
+    start_token = "obj->m_activeMainColorID = -1;"
     end_token = "obj->setVisible(obj->m_objectID != 2065);"
     start = raw_cpp.find(start_token)
     if start < 0:
-        raise RuntimeError("Upstream XDBot addObject start block not found")
+        raise RuntimeError("Upstream XDBot addObject visual block start not found")
     end = raw_cpp.find(end_token, start)
     if end < 0:
-        raise RuntimeError("Upstream XDBot addObject end block not found")
+        raise RuntimeError("Upstream XDBot addObject visual block end not found")
     upstream = raw_cpp[start:end + len(end_token)]
     upstream = re.sub(r"\bobj\b", "object", upstream)
 
-    main_cpp = (ROOT / "src" / "main.cpp").read_text(encoding="utf-8")
+    layout_cpp = (ROOT / "src" / "LayoutMirror.cpp").read_text(encoding="utf-8")
     squash = lambda x: re.sub(r"\s+", "", x)
-    if squash(upstream) not in squash(main_cpp):
-        raise RuntimeError("Mirror addObject block no longer matches pinned XDBot behavior")
+    if squash(upstream) not in squash(layout_cpp):
+        raise RuntimeError("Local render style block no longer matches pinned XDBot addObject behavior")
 
 
 def sync_xdbot() -> None:
@@ -178,6 +178,31 @@ def pe_machine(data: bytes) -> int | None:
 
 def sync_spout() -> None:
     info = CFG["spout"]
+
+    # Vendor the exact interface header that matches the packaged DLL. We use
+    # GetProcAddress for the factory, but the complete vtable is required for
+    # application-only sharing-mode controls such as SetShareMode/SetCPUshare.
+    header_url = (
+        f"https://raw.githubusercontent.com/leadedge/Spout2/{info['tag']}/"
+        "SPOUTSDK/SpoutLibrary/SpoutLibrary.h"
+    )
+    header_bytes = fetch(header_url)
+    header_text = header_bytes.decode("utf-8")
+    required_api = [
+        "virtual void SetShareMode(int mode) = 0;",
+        "virtual bool SetCPUmode(bool bCPU) = 0;",
+        "virtual bool SetMemoryShareMode(bool bMem = true) = 0;",
+        "virtual void SetAutoShare(bool bAuto = true) = 0;",
+        "virtual void SetCPUshare(bool bCPU = true) = 0;",
+        "virtual bool IsGLDXready() = 0;",
+    ]
+    missing_api = [token for token in required_api if token not in header_text]
+    if missing_api:
+        raise RuntimeError(f"Pinned SpoutLibrary.h is missing expected API: {missing_api}")
+    spout_vendor = ROOT / "vendor" / "spout"
+    spout_vendor.mkdir(parents=True, exist_ok=True)
+    (spout_vendor / "SpoutLibrary.h").write_bytes(header_bytes)
+
     url = f"https://github.com/leadedge/Spout2/releases/download/{info['tag']}/{info['asset']}"
     data = fetch(url)
     with tempfile.TemporaryDirectory() as td:
@@ -253,6 +278,7 @@ def validate() -> None:
         ROOT / "vendor/xdbot/upstream/layout_mode.cpp",
         ROOT / "vendor/xdbot/UPSTREAM.txt",
         ROOT / "resources/spout/SpoutLibrary.dll",
+        ROOT / "vendor/spout/SpoutLibrary.h",
         ROOT / "resources/licenses/Spout2-LICENSE.txt",
         ROOT / "resources/licenses/XDBotFork-CREDITS.txt",
     ]
@@ -269,8 +295,17 @@ def validate() -> None:
     if actual_hpp != expected_hpp or actual_cpp != expected_cpp:
         raise SystemExit("Adapted XDBot files do not exactly match the audited transform")
 
+    spout_header = (ROOT / "vendor/spout/SpoutLibrary.h").read_text(encoding="utf-8")
+    for token in (
+        "virtual void SetShareMode(int mode) = 0;",
+        "virtual bool SetCPUmode(bool bCPU) = 0;",
+        "virtual void SetCPUshare(bool bCPU = true) = 0;",
+    ):
+        if token not in spout_header:
+            raise SystemExit(f"Pinned SpoutLibrary.h API validation failed: {token}")
+
     validate_pe_x64(ROOT / "resources/spout/SpoutLibrary.dll")
-    print("Dependency validation OK (audited XDBot transform + x64 SpoutLibrary.dll)")
+    print("Dependency validation OK (audited XDBot transform + full Spout interface + x64 DLL)")
 
 
 def main() -> None:

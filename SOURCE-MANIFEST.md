@@ -28,3 +28,8 @@ The following files are intentionally fetched from their canonical upstream loca
 The XDBot adaptation is audited: the actual `LayoutMode::getModifiedString` implementation suffix is kept verbatim, while only the project-specific umbrella include and XDBot's global hook wrapper are replaced. The mirror-only `addObject` behavior is implemented in `src/main.cpp`.
 
 This design keeps the repository reproducible without pretending that third-party files were locally built or validated when the preparation sandbox could not download/run the Windows runtime stack. GitHub Actions fetches them, validates the exact source transform and x64 PE architecture, compiles with the official Windows Clang/Ninja Geode action against Geode v5.8.2, then verifies they are physically embedded in the produced `.geode`.
+
+
+## v0.1.5 generated dependency
+
+`vendor/spout/SpoutLibrary.h` is downloaded from the exact Spout2 tag in `tools/deps.json` by `tools/bootstrap_deps.py`. This replaces the old hand-written ABI prefix and is required so the application can explicitly control Spout sharing mode without static linking.

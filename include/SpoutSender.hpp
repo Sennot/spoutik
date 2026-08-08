@@ -3,7 +3,8 @@
 #include <string>
 
 #ifdef GEODE_IS_WINDOWS
-#include "SpoutMini.hpp"
+#include <windows.h>
+#include "SpoutLibrary.h"
 #endif
 
 class SpoutSender final {
@@ -21,14 +22,16 @@ private:
 
     bool ensureLoaded();
     void refreshName();
+    void forceGpuTextureSharing();
 
 #ifdef GEODE_IS_WINDOWS
     HMODULE m_module = nullptr;
-    SpoutMini* m_spout = nullptr;
+    SPOUTLIBRARY* m_spout = nullptr;
 #endif
     std::string m_name;
     bool m_loadAttempted = false;
-    bool m_cpuFallbackRejected = false;
+    bool m_shareModeConfigured = false;
     bool m_statusLogged = false;
+    bool m_cpuWarningLogged = false;
     unsigned int m_sendFailures = 0;
 };

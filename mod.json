@@ -5,7 +5,7 @@
   },
   "id": "spoutlayout.dualview",
   "name": "Spout Layout Dual View",
-  "version": "v0.1.4",
+  "version": "v0.1.5",
   "developer": "YourName",
   "description": "Layout locally, full GD frame over Spout2.",
   "resources": {
@@ -37,13 +37,7 @@
     "layout-player-view": {
       "type": "bool",
       "name": "Layout on game window",
-      "description": "If disabled, Spout still sends the full frame but the game window remains decorated.",
-      "default": true
-    },
-    "mirror-simulation": {
-      "type": "bool",
-      "name": "Simulate layout mirror",
-      "description": "Runs the stripped Layout Mode PlayLayer in lockstep for move/rotate/gameplay triggers. Recommended for XDBot-equivalent visuals.",
+      "description": "Temporarily applies the XDBot Layout render mask to the authoritative scene only for the local backbuffer; no second physics world is created.",
       "default": true
     }
   }

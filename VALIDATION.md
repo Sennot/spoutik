@@ -65,3 +65,8 @@ The local environment used to prepare this source does not provide a running Win
 ## Geode version metadata
 
 `mod.json` uses `"geode": "5.8.2"` (without the Git tag prefix `v`); GitHub Actions still uses `sdk: v5.8.2`.
+
+
+## v0.1.5 single-world regression gates
+
+CI rejects any return of a second `PlayLayer::create` path or mirror calls to `update`, `resetLevel`, checkpoint APIs, or `handleButton`. It also verifies that the full SpoutLibrary 2.007.017 header is bootstrapped and that texture mode is requested with `SetShareMode(0)`, `SetCPUmode(false)`, `SetMemoryShareMode(false)`, `SetAutoShare(false)` and `SetCPUshare(false)`.

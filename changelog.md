@@ -1,4 +1,13 @@
-# v0.1.4
+# Changelog
+
+## v0.1.5
+- Replaced the simulated hidden PlayLayer with a single-authoritative-world render-mask architecture.
+- Practice/reset/checkpoint/input physics are no longer duplicated; StartPos/music/physics stay entirely in the real PlayLayer.
+- Uses full pinned XDBot `getModifiedString` output to decide which live objects are shown/hidden locally, with the exact XDBot post-add styling block for retained objects.
+- Local Layout rerender bypasses `ShaderLayer` shader pass while OBS receives the untouched decorated frame first.
+- Vendors the exact pinned SpoutLibrary 2.007.017 interface header and forces application-local texture share mode (`SetShareMode(0)`, CPU/memory/auto share off).
+- CPU mode no longer destroys the sender; it stays visible for diagnosis while logging that GPU-only requirements were not met.
+
 - Fixed Spout sender self-disabling on valid GPU systems: `GetGLDX()` is legacy NV_DX_interop2 hardware compatibility, not the sender sharing-method flag. GPU-only enforcement now rejects only `GetCPU() == true`.
 - Switched default framebuffer capture to Spout's documented `SendFbo(0, 0, 0, ...)` path and made transient send failures retry instead of disabling the session.
 - Added sender diagnostics with actual Spout width/height, CPU mode rejection and legacy GL/DX compatibility status.
