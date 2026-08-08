@@ -51,7 +51,7 @@ for forbidden_hook in [
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
-if mod.get("version") != "v0.1.5": failed.append("mod version v0.1.5")
+if mod.get("version") != "v0.1.6": failed.append("mod version v0.1.6")
 
 resources = mod.get("resources", {}).get("files", [])
 for required in [

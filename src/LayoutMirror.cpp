@@ -208,8 +208,10 @@ void LayoutMirror::buildLayoutMap(PlayLayer* real) {
             for (long long dx = -1; dx <= 1 && !consumed; ++dx) {
                 for (long long dy = -1; dy <= 1 && !consumed; ++dy) {
                     if (dx == 0 && dy == 0) continue;
-                    ObjectKey near { key.id, key.x + dx, key.y + dy };
-                    consumed = consume(near);
+                    // Windows headers define `near` as an empty legacy macro.
+                    // Keep this identifier macro-safe for the Win64 build.
+                    ObjectKey nearbyKey { key.id, key.x + dx, key.y + dy };
+                    consumed = consume(nearbyKey);
                 }
             }
         }

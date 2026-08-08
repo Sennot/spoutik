@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.6
+- Fixed the Win64 Clang build: renamed a local `near` identifier that Windows headers expand as a legacy compatibility macro.
+- Added a regression test preventing macro-sensitive `near` identifiers from returning to the Layout object-matching path.
+
 ## v0.1.5
 - Replaced the simulated hidden PlayLayer with a single-authoritative-world render-mask architecture.
 - Practice/reset/checkpoint/input physics are no longer duplicated; StartPos/music/physics stay entirely in the real PlayLayer.

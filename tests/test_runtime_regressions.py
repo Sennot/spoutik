@@ -63,6 +63,13 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("entry.keep", self.layout)
         self.assertIn("m_startPosition", self.layout)
 
+    def test_layout_map_avoids_windows_near_macro(self):
+        # windows.h retains `near` as an empty compatibility macro. Using it as
+        # a variable name turns consume(near) into consume() under Win64 Clang.
+        self.assertNotRegex(self.layout, r"\bObjectKey\s+near\b")
+        self.assertNotIn("consume(near)", self.layout)
+        self.assertIn("consume(nearbyKey)", self.layout)
+
     def test_xdbot_addobject_visual_mutation_is_preserved(self):
         sequence = r"object->m_activeMainColorID = -1;\s*object->m_activeDetailColorID = -1;\s*object->m_detailUsesHSV = false;\s*object->m_baseUsesHSV = false;\s*object->m_hasNoGlow = true;\s*object->m_isHide = object->m_objectID == 2065;\s*object->setOpacity\(object->m_objectID == 2065 \? 0 : 255\);\s*object->setVisible\(object->m_objectID != 2065\);"
         self.assertRegex(self.layout, sequence)
