@@ -1,0 +1,10 @@
+build/
+.geode/
+resources/spout/SpoutLibrary.dll
+vendor/xdbot/layout_mode.hpp
+vendor/xdbot/layout_mode.cpp
+vendor/xdbot/upstream/
+vendor/xdbot/UPSTREAM.txt
+resources/licenses/Spout2-LICENSE.txt
+__pycache__/
+*.pyc

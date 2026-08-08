@@ -1,0 +1,1 @@
+Report issues with the exact Geometry Dash version, Geode version, OBS/Spout2 Capture version, GPU, and a Geode crashlog/log. For visual desync, include whether StartPos, practice checkpoints, TPS/CBF or shader/camera mods are enabled.

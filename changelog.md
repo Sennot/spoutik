@@ -1,0 +1,11 @@
+# v0.1.0
+- Full-game Spout2 sender at the final `CCEGLView::swapBuffers` pre-presentation boundary.
+- XDBot Layout Mode mirror generated before its own `PlayLayer::init` from the complete pinned Layout Mode logic/tables.
+- Real decorated PlayLayer remains authoritative for music, timing and gameplay.
+- StartPos mapped into the mirror's own object graph; no cross-world StartPos pointer copy.
+- Mirror uses a private cloned `GJGameLevel`; `levelComplete()`, `commitJumps()`, `updateAttempts()` and mirror-side `onQuit()` are blocked to isolate known persistent stats/rewards/scene-exit side effects.
+- Hidden mirror scheduler updates and delayed auto-start are suppressed; it advances only from the real gameplay tick, including normal death-animation ticks until reset.
+- Practice checkpoints, input and runtime mode flags mirrored.
+- Spout CPU-sharing fallback rejected; GL/DX GPU path required.
+- `SpoutLibrary.dll` bundled as a Geode resource and verified inside the final `.geode` by CI.
+- GitHub Actions validates current official GD 2.2081 bindings before the MSVC Win64 build.

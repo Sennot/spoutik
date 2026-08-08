@@ -1,0 +1,50 @@
+{
+  "geode": "v5.8.2",
+  "gd": {
+    "win": "2.2081"
+  },
+  "id": "spoutlayout.dualview",
+  "name": "Spout Layout Dual View",
+  "version": "v0.1.0",
+  "developer": "YourName",
+  "description": "Layout locally, full GD frame over Spout2.",
+  "resources": {
+    "files": [
+      "resources/spout/SpoutLibrary.dll",
+      "resources/licenses/Spout2-LICENSE.txt",
+      "resources/licenses/XDBotFork-CREDITS.txt"
+    ]
+  },
+  "settings": {
+    "enabled": {
+      "type": "bool",
+      "name": "Enable dual view",
+      "description": "Send the normal decorated frame to Spout and display Layout Mode locally while a PlayLayer is active.",
+      "default": true
+    },
+    "sender-name": {
+      "type": "string",
+      "name": "Spout sender name",
+      "description": "Name shown in OBS Spout2 Capture.",
+      "default": "Geometry Dash Full"
+    },
+    "invert-spout": {
+      "type": "bool",
+      "name": "Invert Spout texture",
+      "description": "OpenGL framebuffers are normally inverted for Spout receivers.",
+      "default": true
+    },
+    "layout-player-view": {
+      "type": "bool",
+      "name": "Layout on game window",
+      "description": "If disabled, Spout still sends the full frame but the game window remains decorated.",
+      "default": true
+    },
+    "mirror-simulation": {
+      "type": "bool",
+      "name": "Simulate layout mirror",
+      "description": "Runs the stripped Layout Mode PlayLayer in lockstep for move/rotate/gameplay triggers. Recommended for XDBot-equivalent visuals.",
+      "default": true
+    }
+  }
+}

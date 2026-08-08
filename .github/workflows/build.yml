@@ -1,0 +1,54 @@
+name: Build Windows Geode mod
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch pinned XDBot Layout Mode and Spout2 binary
+        run: python tools/bootstrap_deps.py
+
+      - name: Test audited XDBot transform
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Verify local source invariants
+        run: python tools/verify_bindings.py
+
+      - name: Verify declarations in official Geode 2.2081 bindings
+        run: python tools/verify_upstream_bindings.py
+
+      - name: Validate embedded dependencies
+        run: python tools/bootstrap_deps.py --validate-only
+
+      - name: Build against Geode v5.8.2 / Win64
+        id: build
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          sdk: v5.8.2
+          target: Win64
+          build-config: Release
+          use-lto: true
+
+      - name: Prove Spout DLL is inside the built .geode
+        shell: pwsh
+        run: python tools/verify_geode_package.py '${{ steps.build.outputs.build-output }}'
+
+      - name: Upload .geode
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpoutLayoutDualView-Win64
+          path: ${{ steps.build.outputs.build-output }}
+          if-no-files-found: error
