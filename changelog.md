@@ -1,3 +1,7 @@
+# v0.1.2
+- Fixed CMake configure failure with Geode 5.8.2: `setup_geode_mod()` uses the plain `target_link_libraries` signature, so the explicit Win32 `opengl32` link now uses the same signature.
+- Added an offline invariant that rejects keyword-form `target_link_libraries(... PRIVATE/PUBLIC/INTERFACE ...)` on the mod target.
+
 # v0.1.1
 - Fixed GitHub Actions bootstrap false-positive on the pinned XDBot `layout_mode.cpp`: removed brittle minimum-byte-size checks.
 - XDBot completeness is now validated structurally (all required ID tables, preprocessing path, and complete `mergeVector` tail).

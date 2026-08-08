@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SpoutLayoutCapture VERSION 0.1.1 LANGUAGES CXX)
+project(SpoutLayoutCapture VERSION 0.1.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,7 +33,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 if (WIN32)
     target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    target_link_libraries(${PROJECT_NAME} PRIVATE opengl32)
+    target_link_libraries(${PROJECT_NAME} opengl32)
 endif()
 
 add_subdirectory("$ENV{GEODE_SDK}" "${CMAKE_CURRENT_BINARY_DIR}/geode")

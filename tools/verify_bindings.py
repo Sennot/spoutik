@@ -84,6 +84,13 @@ if "verify_upstream_bindings.py" not in workflow or "verify_geode_package.py" no
 cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 if "CMAKE_CXX_STANDARD 23" not in cmake or "vendor/xdbot/layout_mode.cpp" not in cmake:
     failed.append("CMake C++23/full XDBot translation unit")
+# Geode's setup_geode_mod() links the SDK with CMake's plain target_link_libraries
+# signature. Mixing that with PRIVATE/PUBLIC/INTERFACE on the same target is a
+# hard CMake configure error. Keep our explicit opengl32 link plain too.
+if re.search(r"target_link_libraries\(\$\{PROJECT_NAME\}\s+(?:PRIVATE|PUBLIC|INTERFACE)\b", cmake):
+    failed.append("CMake link signature must stay plain for setup_geode_mod compatibility")
+if not re.search(r"target_link_libraries\(\$\{PROJECT_NAME\}\s+opengl32\)", cmake):
+    failed.append("Win32 opengl32 link must use plain target_link_libraries signature")
 
 abi_order = [
     "SetSenderName", "SetSenderFormat", "ReleaseSender", "SendFbo", "SendTexture",
