@@ -2,6 +2,8 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/ShaderLayer.hpp>
 #include <Geode/modify/CCEGLView.hpp>
+#include <Geode/modify/CCNode.hpp>
+#include <Geode/modify/GameObject.hpp>
 #include "LayoutMirror.hpp"
 #include "SpoutSender.hpp"
 
@@ -73,10 +75,51 @@ class $modify(SpoutLayoutShaderLayer, ShaderLayer) {
     }
 };
 
+class $modify(SpoutLayoutGameObject, GameObject) {
+    static void onModify(auto& self) {
+        // Stay outside every visibility hook so the active render set observes
+        // the final value even when another mod short-circuits the inner chain.
+        if (!self.setHookPriorityPre("GameObject::setVisible", Priority::First)) {
+            log::warn("Could not set GameObject::setVisible tracking priority to First");
+        }
+    }
+
+    void setVisible(bool visible) {
+        GameObject::setVisible(visible);
+        LayoutMirror::get().observeVisibility(this, visible);
+    }
+};
+
+class $modify(SpoutLayoutNode, cocos2d::CCNode) {
+    static void onModify(auto& self) {
+        if (!self.setHookPriorityPre("cocos2d::CCNode::visit", Priority::Last)) {
+            log::warn("Could not set CCNode::visit layout mask priority to Last");
+        }
+    }
+
+    void visit() {
+        auto& layout = LayoutMirror::get();
+        auto const action = layout.beginNodeVisit(this);
+        if (action == LayoutMirror::NodeVisitAction::Skip) return;
+
+        cocos2d::CCNode::visit();
+        if (action == LayoutMirror::NodeVisitAction::Styled) {
+            layout.endNodeVisit(this);
+        }
+    }
+};
+
 class $modify(SpoutLayoutEGLView, cocos2d::CCEGLView) {
     static void onModify(auto& self) {
-        if (!self.setHookPriorityPre("cocos2d::CCEGLView::swapBuffers", Priority::Last)) {
-            log::warn("Could not set CCEGLView::swapBuffers hook to Priority::Last");
+        // HackMega renders its overlay in the same presentation hook. A named
+        // relative priority is stable even if HackMega changes its raw number.
+        if (!self.setHookPriorityAfterPre(
+            "cocos2d::CCEGLView::swapBuffers", "absolllute.hackmega"
+        )) {
+            log::warn("Could not order Spout capture after absolllute.hackmega; using Priority::Last");
+            if (!self.setHookPriorityPre("cocos2d::CCEGLView::swapBuffers", Priority::Last)) {
+                log::warn("Could not set CCEGLView::swapBuffers fallback priority to Last");
+            }
         }
     }
 

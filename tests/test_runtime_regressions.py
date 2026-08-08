@@ -95,42 +95,70 @@ class RuntimeRegressionTests(unittest.TestCase):
         ):
             self.assertIn(token, self.layout)
 
-    def test_runtime_object_colors_are_overridden_and_restored(self):
-        self.assertIn("object->setObjectColor(object->m_isObjectBlack ? kLayoutBlack : kLayoutWhite)", self.layout)
-        self.assertIn("object->setChildColor(object->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite)", self.layout)
-        self.assertIn("object->setObjectColor(state.mainColor)", self.layout)
-        self.assertIn("object->setChildColor(state.detailColor)", self.layout)
-
-    def test_hot_path_indexes_gd_camera_sections_without_full_scan(self):
-        apply_block = re.search(
-            r"void LayoutMirror::applyLayoutOverrides\(PlayLayer\* real\) \{([\s\S]*?)\n\}",
+    def test_render_nodes_cover_reparented_object_sprites(self):
+        register = re.search(
+            r"void LayoutMirror::registerRenderNodes\(LayoutEntry const& entry\) \{([\s\S]*?)\n\}",
             self.layout,
         )
-        self.assertIsNotNone(apply_block)
-        block = apply_block.group(1)
-        self.assertIn("m_entryIndex.find(object)", block)
-        self.assertIn("touchSectionGrid(real->m_sections)", block)
-        self.assertIn("touchSectionGrid(real->m_nonEffectObjects)", block)
-        self.assertIn("real->m_leftSectionIndex", block)
-        self.assertIn("real->m_rightSectionIndex", block)
-        self.assertIn("real->m_bottomSectionIndex", block)
-        self.assertIn("real->m_topSectionIndex", block)
-        self.assertIn("touchRuntimeVector(real->m_visibleObjects)", block)
-        self.assertIn("touchRuntimeVector(real->m_visibleObjects2)", block)
-        self.assertIn("Layout camera grid active", block)
-        self.assertNotRegex(block, r"for \(auto& entry : m_entries\)")
+        self.assertIsNotNone(register)
+        block = register.group(1)
+        for token in ("object", "object->m_colorSprite", "object->m_glowSprite", "object->m_particle"):
+            self.assertIn(token, block)
+        self.assertIn("RenderNodeKind::Main", block)
+        self.assertIn("RenderNodeKind::Detail", block)
+        self.assertIn("RenderNodeKind::Suppress", block)
+
+    def test_hot_path_masks_the_actual_ccnode_visit_without_camera_scan(self):
+        self.assertIn('#include <Geode/modify/CCNode.hpp>', self.main)
+        self.assertIn('"cocos2d::CCNode::visit"', self.main)
+        self.assertRegex(
+            self.main,
+            r"beginNodeVisit\(this\);[\s\S]*NodeVisitAction::Skip\) return;[\s\S]*CCNode::visit\(\);[\s\S]*endNodeVisit\(this\)",
+        )
+        begin = re.search(
+            r"LayoutMirror::NodeVisitAction LayoutMirror::beginNodeVisit\(cocos2d::CCNode\* node\) \{([\s\S]*?)\n\}",
+            self.layout,
+        )
+        self.assertIsNotNone(begin)
+        self.assertIn("m_renderNodes.find(node)", begin.group(1))
+        self.assertIn("Layout hybrid mask active", self.layout)
+        for old_path in ("m_sections", "m_nonEffectObjects", "m_visibleObjects", "m_visibleObjects2"):
+            self.assertNotIn(old_path, self.layout)
+
+    def test_batched_objects_use_a_visibility_tracked_active_set(self):
+        self.assertIn('#include <Geode/modify/GameObject.hpp>', self.main)
+        self.assertIn('"GameObject::setVisible"', self.main)
+        self.assertRegex(
+            self.main,
+            r"GameObject::setVisible\(visible\);\s*LayoutMirror::get\(\)\.observeVisibility\(this, visible\);",
+        )
+        batch = re.search(
+            r"void LayoutMirror::applyBatchedOverrides\(\) \{([\s\S]*?)\n\}",
+            self.layout,
+        )
+        self.assertIsNotNone(batch)
+        self.assertIn("m_visibleEntries", batch.group(1))
+        self.assertIn("getBatchNode()", batch.group(1))
+        self.assertNotRegex(batch.group(1), r"for \(auto const& entry : m_entries\)")
 
     def test_uninstantiated_removed_deco_does_not_mark_map_incomplete(self):
         self.assertIn("pendingKeep", self.layout)
         self.assertRegex(self.layout, r"if \(m_classifiedKeepCount != m_transformedRecordCount \|\| pendingKeep != 0\)")
         self.assertIn("m_boundKeepCount", self.layout)
 
-    def test_xdbot_addobject_visual_mutation_is_preserved(self):
-        sequence = r"object->m_activeMainColorID = -1;\s*object->m_activeDetailColorID = -1;\s*object->m_detailUsesHSV = false;\s*object->m_baseUsesHSV = false;\s*object->m_hasNoGlow = true;\s*object->m_isHide = object->m_objectID == 2065;\s*object->setOpacity\(object->m_objectID == 2065 \? 0 : 255\);\s*object->setVisible\(object->m_objectID != 2065\);"
-        self.assertRegex(self.layout, sequence)
+    def test_visit_mask_preserves_trigger_visibility_and_opacity(self):
+        begin = re.search(
+            r"LayoutMirror::NodeVisitAction LayoutMirror::beginNodeVisit\(cocos2d::CCNode\* node\) \{([\s\S]*?)\n\}",
+            self.layout,
+        ).group(1)
+        self.assertNotIn("setVisible", begin)
+        self.assertNotIn("setOpacity", begin)
+        self.assertNotIn("m_activeMainColorID", begin)
+        self.assertIn("sprite->setColor(target)", begin)
+        self.assertIn("sprite->setColor(state.color)", self.layout)
 
     def test_local_layout_mutations_are_restored_same_frame(self):
-        self.assertRegex(self.layout, r"applyLayoutOverrides\(real\);[\s\S]*scene->visit\(\);[\s\S]*restoreLayoutOverrides\(\);")
+        self.assertRegex(self.layout, r"beginLayoutPass\(real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);")
         self.assertIn("SavedVisualState", self.header)
 
     def test_shader_pass_is_bypassed_only_during_layout_rerender(self):
@@ -144,6 +172,11 @@ class RuntimeRegressionTests(unittest.TestCase):
             self.main,
             r"sendDefaultFramebuffer\(\);[\s\S]*renderPlayerView\(director, real\);[\s\S]*CCEGLView::swapBuffers\(\)",
         )
+
+    def test_spout_capture_is_ordered_after_hackmega_overlay(self):
+        self.assertIn("setHookPriorityAfterPre", self.main)
+        self.assertIn('"absolllute.hackmega"', self.main)
+        self.assertLess(self.main.index("setHookPriorityAfterPre"), self.main.index("sendDefaultFramebuffer();"))
 
 
 if __name__ == "__main__":

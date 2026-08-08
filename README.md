@@ -51,8 +51,10 @@ While the real decorated layer performs its ordinary `addObject` calls, each liv
 
 During the local pass:
 
-- the complete exact map is indexed by live `GameObject*`, while GD's active `m_sections` and `m_nonEffectObjects` camera rectangle is touched per frame; this includes ordinary decoration and trigger-hidden nodes without scanning a 100k+ object level linearly;
-- retained objects receive the pinned XDBot `addObject` state plus immediate white/black main/detail sprite colors;
+- the complete exact map is compiled once into direct render-node decisions for each live object's main, detail, glow and particle sprites;
+- ordinary nodes are masked inside the actual `CCNode::visit` traversal; batched sprites are handled from a visibility-tracked active set immediately around the batch draw, because Cocos does not individually visit them;
+- removed nodes skip drawing, retained sprites receive a scoped white/black color only around their draw, and no camera grid or full-level list is scanned per frame;
+- runtime visibility and opacity from gameplay triggers are preserved instead of being forced and restored every frame;
 - BG, G1, G2, LINE, MG1 and MG2 receive every special color from pinned XDBot `newColors`;
 - objects inside GD's shader z-range are visited directly from `m_inShaderParent`, so the decorated shader render-texture cannot cover the local Layout pass;
 - all touched fields, colors, opacity and visibility are restored in the same frame after the local redraw.
@@ -120,7 +122,7 @@ Add an OBS **Spout2 Capture** source and select sender **Geometry Dash Full** (o
 
 The frame sent to Spout is intentionally captured from the already-rendered default framebuffer, so UI/HUD mods generally do not need explicit support.
 
-Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. v0.1.9 uses GD's full active section grids after v0.1.8 proved that the two transient visible-object vectors omit ordinary rendered decoration; the shader z-range is still drawn directly instead of replaying the decorated shader texture. At presentation time the untouched decorated framebuffer is sent to Spout first; then the indexed Layout overrides and full XDBot special palette are temporarily applied, the same scene is visited again for the local backbuffer, and every touched visual field is restored immediately.
+Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. v0.2.0 applies those decisions at the actual Cocos node visit boundary plus a visibility-tracked path for batched sprites, including reparented object visuals without scanning camera sections or forcing trigger opacity. The shader z-range is still drawn directly instead of replaying the decorated shader texture. The Spout swap hook is explicitly ordered after `absolllute.hackmega`, so its overlay is present in the untouched framebuffer sent to OBS before the local Layout redraw.
 
 ## Credits / licensing
 

@@ -101,11 +101,12 @@ def transform_xdbot(raw_hpp: str, raw_cpp: str) -> tuple[str, str, str]:
 
 
 def validate_xdbot_addobject(raw_cpp: str) -> None:
-    """Prove our local render mutation retains pinned XDBot addObject styling.
+    """Prove our local visit mask preserves pinned XDBot render semantics.
 
     v0.1.5 no longer creates a second PlayLayer; excluded/deco decisions come
-    from the exact getModifiedString output. The post-add visual mutation still
-    must remain statement-identical to upstream for objects that survive it.
+    from the exact getModifiedString output. v0.2.0 applies the visible result
+    at CCNode::visit instead of mutating gameplay fields every frame, so verify
+    the upstream block itself and the equivalent local draw decisions.
     """
     start_token = "obj->m_activeMainColorID = -1;"
     end_token = "obj->setVisible(obj->m_objectID != 2065);"
@@ -115,13 +116,20 @@ def validate_xdbot_addobject(raw_cpp: str) -> None:
     end = raw_cpp.find(end_token, start)
     if end < 0:
         raise RuntimeError("Upstream XDBot addObject visual block end not found")
-    upstream = raw_cpp[start:end + len(end_token)]
-    upstream = re.sub(r"\bobj\b", "object", upstream)
-
     layout_cpp = (ROOT / "src" / "LayoutMirror.cpp").read_text(encoding="utf-8")
-    squash = lambda x: re.sub(r"\s+", "", x)
-    if squash(upstream) not in squash(layout_cpp):
-        raise RuntimeError("Local render style block no longer matches pinned XDBot addObject behavior")
+    required_local_semantics = (
+        "RenderNodeKind::Main",
+        "RenderNodeKind::Detail",
+        "RenderNodeKind::Suppress",
+        "if (excludedTriggerIDs.contains(object->m_objectID)) keep = false",
+        "renderNode.owner->m_isObjectBlack ? kLayoutBlack : kLayoutWhite",
+        "renderNode.owner->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite",
+        "registerNode(object->m_glowSprite, RenderNodeKind::Suppress)",
+        "sprite->setColor(target)",
+    )
+    missing = [token for token in required_local_semantics if token not in layout_cpp]
+    if missing:
+        raise RuntimeError(f"Local visit mask lost XDBot addObject render semantics: {missing}")
 
 
 def sync_xdbot() -> None:

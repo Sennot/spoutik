@@ -24,12 +24,6 @@ for label, pattern in {
     "PlayLayer::addObject": r"void addObject\(GameObject\* object\)",
     "PlayLayer::onQuit": r"void onQuit\(\)",
     "ShaderLayer::visit": r"class ShaderLayer[\s\S]*?virtual void visit\(\)",
-    "GJBaseGameLayer::m_objects": r"cocos2d::CCArray\* m_objects;",
-    "GJBaseGameLayer::m_visibleObjects": r"gd::vector<GameObject\*> m_visibleObjects;",
-    "GJBaseGameLayer::m_visibleObjects2": r"gd::vector<GameObject\*> m_visibleObjects2;",
-    "GJBaseGameLayer::m_sections": r"gd::vector<gd::vector<gd::vector<GameObject\*>\*>\*> m_sections;",
-    "GJBaseGameLayer::m_nonEffectObjects": r"gd::vector<gd::vector<gd::vector<GameObject\*>\*>\*> m_nonEffectObjects;",
-    "GJBaseGameLayer::camera section bounds": r"int m_leftSectionIndex;[\s\S]*?int m_rightSectionIndex;[\s\S]*?int m_bottomSectionIndex;[\s\S]*?int m_topSectionIndex;",
     "GJBaseGameLayer::m_inShaderParent": r"cocos2d::CCNode\* m_inShaderParent;",
     "GJBaseGameLayer::m_background": r"cocos2d::CCSprite\* m_background;",
     "GJBaseGameLayer::m_groundLayer": r"GJGroundLayer\* m_groundLayer;",
@@ -41,24 +35,20 @@ for label, pattern in {
     "GJMGLayer::m_ground1Sprite": r"class GJMGLayer[\s\S]*?cocos2d::CCSprite\* m_ground1Sprite;",
     "GJMGLayer::m_ground2Sprite": r"class GJMGLayer[\s\S]*?cocos2d::CCSprite\* m_ground2Sprite;",
     "GameObject::m_objectID": r"int m_objectID;",
-    "GameObject::m_activeMainColorID": r"int m_activeMainColorID;",
-    "GameObject::m_activeDetailColorID": r"int m_activeDetailColorID;",
-    "GameObject::m_baseUsesHSV": r"bool m_baseUsesHSV;",
-    "GameObject::m_detailUsesHSV": r"bool m_detailUsesHSV;",
+    "GameObject::setVisible": r"class GameObject[\s\S]*?virtual void setVisible\(bool visible\)",
     "GameObject::m_glowSprite": r"cocos2d::CCSprite\* m_glowSprite;",
     "GameObject::m_particle": r"cocos2d::CCParticleSystemQuad\* m_particle;",
-    "GameObject::m_hasNoGlow": r"bool m_hasNoGlow;",
-    "GameObject::m_isHide": r"bool m_isHide;",
     "GameObject::m_colorSprite": r"cocos2d::CCSprite\* m_colorSprite;",
     "GameObject::m_isObjectBlack": r"bool m_isObjectBlack;",
     "GameObject::m_isColorSpriteBlack": r"bool m_isColorSpriteBlack;",
-    "GameObject::setObjectColor": r"virtual void setObjectColor\(cocos2d::ccColor3B const& color\)",
-    "GameObject::setChildColor": r"virtual void setChildColor\(cocos2d::ccColor3B const& color\)",
     "ShaderLayer::m_gameLayer": r"class ShaderLayer[\s\S]*?GJBaseGameLayer\* m_gameLayer;",
 }.items():
     require(gd, label, pattern)
 
 for label, pattern in {
+    "CCNode::visit": r"class cocos2d::CCNode[\s\S]*?virtual void visit\(\)",
+    "CCSprite::getBatchNode": r"class cocos2d::CCSprite[\s\S]*?getBatchNode\(\)",
+    "CCParticleSystem::getBatchNode": r"class cocos2d::CCParticleSystem[\s\S]*?getBatchNode\(\)",
     "CCEGLView::swapBuffers": r"virtual void swapBuffers\(\)",
     "CCDirector::setViewport": r"void setViewport\(\)",
     "CCDirector::setProjection": r"void setProjection\(cocos2d::ccDirectorProjection\)",
@@ -66,4 +56,4 @@ for label, pattern in {
 }.items():
     require(cocos, label, pattern)
 
-print("Official Geode bindings main/2.2081 contain exact-map and full-palette render declarations")
+print("Official Geode bindings main/2.2081 contain visit-mask and full-palette render declarations")

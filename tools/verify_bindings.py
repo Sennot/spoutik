@@ -23,11 +23,13 @@ checks = {
     "XDBot full transform used": r"LayoutMode::getModifiedString\(std::string\(level->m_levelString\)\)",
     "XDBot serialized plan": r"canonicalWithoutHidden[\s\S]*m_pendingByObjectID",
     "authoritative object binding": r"PlayLayer::addObject\(object\);\s*LayoutMirror::get\(\)\.observeObject\(this, object\);",
-    "camera section index": r"m_entryIndex\.find\(object\)[\s\S]*touchSectionGrid\(real->m_sections\)[\s\S]*touchSectionGrid\(real->m_nonEffectObjects\)",
-    "XDBot retained style": r"object->m_activeMainColorID = -1;[\s\S]*object->setVisible\(object->m_objectID != 2065\);",
-    "XDBot actual object colors": r"setObjectColor\(object->m_isObjectBlack[\s\S]*setChildColor\(object->m_isColorSpriteBlack",
+    "actual render-node index": r"registerRenderNodes[\s\S]*m_renderNodes\.find\(node\)",
+    "CCNode visit mask": r"beginNodeVisit\(this\)[\s\S]*NodeVisitAction::Skip\) return;[\s\S]*CCNode::visit\(\)[\s\S]*endNodeVisit\(this\)",
+    "batched active-object mask": r"observeVisibility\(this, visible\)[\s\S]*applyBatchedOverrides[\s\S]*m_visibleEntries[\s\S]*getBatchNode\(\)",
+    "XDBot actual object colors": r"m_isObjectBlack \? kLayoutBlack[\s\S]*m_isColorSpriteBlack \? kLayoutBlack[\s\S]*sprite->setColor\(target\)",
+    "HackMega relative capture order": r"setHookPriorityAfterPre\([\s\S]*cocos2d::CCEGLView::swapBuffers[\s\S]*absolllute\.hackmega",
     "XDBot full special palette": r"kBackgroundChannel[\s\S]*kGround1Channel[\s\S]*kGround2Channel[\s\S]*kLineChannel[\s\S]*kMG1Channel[\s\S]*kMG2Channel[\s\S]*splitView\(newColors, '\|'\)",
-    "layout state restored": r"applyLayoutOverrides\(real\);[\s\S]*scene->visit\(\);[\s\S]*restoreLayoutOverrides\(\);",
+    "layout state restored": r"beginLayoutPass\(real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
     "Spout default FBO": r"SendFbo\(0, 0, 0, invert\)",
     "Spout force texture": r"SetShareMode\(0\)",
     "Spout CPU mode off": r"SetCPUmode\(false\)",
@@ -57,7 +59,7 @@ for forbidden_hook in [
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
-if mod.get("version") != "v0.1.9": failed.append("mod version v0.1.9")
+if mod.get("version") != "v0.2.0": failed.append("mod version v0.2.0")
 
 resources = mod.get("resources", {}).get("files", [])
 for required in [

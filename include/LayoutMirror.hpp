@@ -4,17 +4,27 @@
 #include <deque>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class LayoutMirror final {
 public:
+    enum class NodeVisitAction {
+        PassThrough,
+        Skip,
+        Styled,
+    };
+
     static LayoutMirror& get();
 
     void prepareFor(PlayLayer* real, GJGameLevel* level);
     void observeObject(PlayLayer* real, GameObject* object);
+    void observeVisibility(GameObject* object, bool visible);
     void finishFor(PlayLayer* real);
     void destroyFor(PlayLayer* real);
     void renderPlayerView(cocos2d::CCDirector* director, PlayLayer* real);
+    NodeVisitAction beginNodeVisit(cocos2d::CCNode* node);
+    void endNodeVisit(cocos2d::CCNode* node);
 
     bool isRenderingLayout() const { return m_renderingLayout; }
     std::string const& modifiedLevelString() const { return m_modifiedString; }
@@ -29,27 +39,27 @@ private:
         GameObject* object = nullptr;
         bool keep = false;
         bool forceHidden = false;
-        std::uint64_t touchedSerial = 0;
     };
 
     struct SavedVisualState {
-        GameObject* object = nullptr;
+        cocos2d::CCNode* node = nullptr;
+        cocos2d::CCSprite* sprite = nullptr;
+        cocos2d::CCParticleSystemQuad* particle = nullptr;
+        cocos2d::ccColor3B color {255, 255, 255};
+        bool restoreColor = false;
+        bool restoreVisible = false;
         bool visible = false;
-        unsigned char opacity = 255;
-        int activeMainColorID = -1;
-        int activeDetailColorID = -1;
-        bool detailUsesHSV = false;
-        bool baseUsesHSV = false;
-        bool hasNoGlow = false;
-        bool isHide = false;
-        bool glowVisible = false;
-        bool particleVisible = false;
-        bool hadGlow = false;
-        bool hadParticle = false;
-        bool hadColorSprite = false;
-        cocos2d::ccColor3B mainColor {255, 255, 255};
-        cocos2d::ccColor3B detailColor {255, 255, 255};
-        cocos2d::ccColor3B glowColor {255, 255, 255};
+    };
+
+    enum class RenderNodeKind {
+        Main,
+        Detail,
+        Suppress,
+    };
+
+    struct RenderNodeEntry {
+        GameObject* owner = nullptr;
+        RenderNodeKind kind = RenderNodeKind::Suppress;
     };
 
     struct PendingRecord {
@@ -65,9 +75,11 @@ private:
 
     void clear();
     void buildLayoutPlan(GJGameLevel* level);
-    void applyLayoutOverrides(PlayLayer* real);
+    void beginLayoutPass(PlayLayer* real);
+    void endLayoutPass();
     void restoreLayoutOverrides();
-    void touchEntry(LayoutEntry& entry);
+    void registerRenderNodes(LayoutEntry const& entry);
+    void applyBatchedOverrides();
     void applyScenePalette(PlayLayer* real);
     void saveAndColorSceneSprite(cocos2d::CCSprite* sprite, cocos2d::ccColor3B color);
 
@@ -75,17 +87,25 @@ private:
     std::string m_modifiedString;
     std::vector<LayoutEntry> m_entries;
     std::unordered_map<GameObject*, std::size_t> m_entryIndex;
+    std::unordered_set<std::size_t> m_visibleEntries;
+    std::unordered_map<cocos2d::CCNode*, RenderNodeEntry> m_renderNodes;
     std::unordered_map<int, std::deque<PendingRecord>> m_pendingByObjectID;
     std::unordered_map<int, cocos2d::ccColor3B> m_layoutPalette;
     std::vector<SavedVisualState> m_savedStates;
     std::vector<SavedSceneSprite> m_savedSceneSprites;
-    std::uint64_t m_frameSerial = 0;
     std::size_t m_originalRecordCount = 0;
     std::size_t m_transformedRecordCount = 0;
     std::size_t m_classifiedKeepCount = 0;
     std::size_t m_boundRecordCount = 0;
     std::size_t m_boundKeepCount = 0;
     std::size_t m_unclassifiedObjectCount = 0;
+    std::size_t m_frameNodeProbeCount = 0;
+    std::size_t m_frameMappedNodeCount = 0;
+    std::size_t m_frameStyledNodeCount = 0;
+    std::size_t m_frameSuppressedNodeCount = 0;
+    std::size_t m_frameActiveObjectCount = 0;
+    std::size_t m_frameBatchedMutationCount = 0;
     bool m_reportedRenderCoverage = false;
+    bool m_renderMapReady = false;
     bool m_renderingLayout = false;
 };

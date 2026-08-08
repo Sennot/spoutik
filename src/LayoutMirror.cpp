@@ -148,18 +148,26 @@ void LayoutMirror::clear() {
     m_modifiedString.clear();
     m_entries.clear();
     m_entryIndex.clear();
+    m_visibleEntries.clear();
+    m_renderNodes.clear();
     m_pendingByObjectID.clear();
     m_layoutPalette.clear();
     m_savedStates.clear();
     m_savedSceneSprites.clear();
-    m_frameSerial = 0;
     m_originalRecordCount = 0;
     m_transformedRecordCount = 0;
     m_classifiedKeepCount = 0;
     m_boundRecordCount = 0;
     m_boundKeepCount = 0;
     m_unclassifiedObjectCount = 0;
+    m_frameNodeProbeCount = 0;
+    m_frameMappedNodeCount = 0;
+    m_frameStyledNodeCount = 0;
+    m_frameSuppressedNodeCount = 0;
+    m_frameActiveObjectCount = 0;
+    m_frameBatchedMutationCount = 0;
     m_reportedRenderCoverage = false;
+    m_renderMapReady = false;
     m_renderingLayout = false;
 }
 
@@ -193,6 +201,7 @@ void LayoutMirror::buildLayoutPlan(GJGameLevel* level) {
     m_transformedRecordCount = transformedRecords.size();
     m_entries.reserve(originalRecords.size());
     m_entryIndex.reserve(originalRecords.size());
+    m_visibleEntries.reserve(std::min<std::size_t>(originalRecords.size(), 8192));
 
     // Consume the upstream palette itself instead of copying its RGB values.
     // Channel IDs are the six GD special channels emitted by XDBot newColors.
@@ -251,9 +260,25 @@ void LayoutMirror::observeObject(PlayLayer* real, GameObject* object) {
         ++m_unclassifiedObjectCount;
     }
 
+    // getModifiedString intentionally leaves gameplay triggers in the level
+    // data, while XDBot's PlayLayer::addObject hook omits this exact set from
+    // the visual world. Preserve that second half of the upstream behavior
+    // without removing triggers from our one authoritative gameplay layer.
+    if (excludedTriggerIDs.contains(object->m_objectID)) keep = false;
+
     auto const index = m_entries.size();
-    m_entries.push_back({ object, keep, forceHidden, 0 });
-    m_entryIndex[object] = index;
+    m_entries.push_back({ object, keep, forceHidden });
+    m_entryIndex.insert_or_assign(object, index);
+    if (object->isVisible()) m_visibleEntries.insert(index);
+    if (m_renderMapReady) registerRenderNodes(m_entries.back());
+}
+
+void LayoutMirror::observeVisibility(GameObject* object, bool visible) {
+    if (!object || m_renderingLayout) return;
+    auto found = m_entryIndex.find(object);
+    if (found == m_entryIndex.end()) return;
+    if (visible) m_visibleEntries.insert(found->second);
+    else m_visibleEntries.erase(found->second);
 }
 
 void LayoutMirror::finishFor(PlayLayer* real) {
@@ -287,57 +312,128 @@ void LayoutMirror::finishFor(PlayLayer* real) {
             pendingKeep
         );
     }
+
+    // Build one direct CCNode lookup after object construction. GameObject's
+    // detail/glow/particle sprites may be reparented, so indexing those nodes
+    // is what makes the mask match the actual Cocos render traversal.
+    m_renderNodes.clear();
+    m_renderNodes.reserve(m_entries.size() * 3);
+    for (auto const& entry : m_entries) registerRenderNodes(entry);
+    m_renderMapReady = true;
 }
 
 void LayoutMirror::destroyFor(PlayLayer* real) {
     if (!real || real == m_real) clear();
 }
 
-void LayoutMirror::touchEntry(LayoutEntry& entry) {
-    if (!entry.object || entry.touchedSerial == m_frameSerial) return;
-    entry.touchedSerial = m_frameSerial;
+void LayoutMirror::registerRenderNodes(LayoutEntry const& entry) {
     auto* object = entry.object;
+    if (!object) return;
 
-    SavedVisualState state;
-    state.object = object;
-    state.visible = object->isVisible();
-    state.opacity = object->getOpacity();
-    state.activeMainColorID = object->m_activeMainColorID;
-    state.activeDetailColorID = object->m_activeDetailColorID;
-    state.detailUsesHSV = object->m_detailUsesHSV;
-    state.baseUsesHSV = object->m_baseUsesHSV;
-    state.hasNoGlow = object->m_hasNoGlow;
-    state.isHide = object->m_isHide;
-    state.mainColor = object->getColor();
-    state.hadColorSprite = object->m_colorSprite != nullptr;
-    state.detailColor = state.hadColorSprite ? object->m_colorSprite->getColor() : kLayoutWhite;
-    state.hadGlow = object->m_glowSprite != nullptr;
-    state.glowVisible = state.hadGlow && object->m_glowSprite->isVisible();
-    state.glowColor = state.hadGlow ? object->m_glowSprite->getColor() : kLayoutWhite;
-    state.hadParticle = object->m_particle != nullptr;
-    state.particleVisible = state.hadParticle && object->m_particle->isVisible();
-    m_savedStates.push_back(state);
+    auto registerNode = [&](cocos2d::CCNode* node, RenderNodeKind kind) {
+        if (node) m_renderNodes.insert_or_assign(node, RenderNodeEntry { object, kind });
+    };
 
     if (!entry.keep || entry.forceHidden) {
-        object->setVisible(false);
-        if (object->m_glowSprite) object->m_glowSprite->setVisible(false);
-        if (object->m_particle) object->m_particle->setVisible(false);
+        registerNode(object, RenderNodeKind::Suppress);
+        registerNode(object->m_colorSprite, RenderNodeKind::Suppress);
+        registerNode(object->m_glowSprite, RenderNodeKind::Suppress);
+        registerNode(object->m_particle, RenderNodeKind::Suppress);
         return;
     }
 
-    // Exact pinned XDBot addObject state, plus an immediate color refresh for
-    // objects that were originally initialized with the decorated color map.
-    object->m_activeMainColorID = -1;
-    object->m_activeDetailColorID = -1;
-    object->m_detailUsesHSV = false;
-    object->m_baseUsesHSV = false;
-    object->m_hasNoGlow = true;
-    object->m_isHide = object->m_objectID == 2065;
-    object->setOpacity(object->m_objectID == 2065 ? 0 : 255);
-    object->setVisible(object->m_objectID != 2065);
-    object->setObjectColor(object->m_isObjectBlack ? kLayoutBlack : kLayoutWhite);
-    object->setChildColor(object->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite);
-    if (object->m_glowSprite) object->m_glowSprite->setVisible(false);
+    registerNode(object, RenderNodeKind::Main);
+    registerNode(object->m_colorSprite, RenderNodeKind::Detail);
+    // This is the render-time equivalent of XDBot's m_hasNoGlow assignment.
+    // Skipping the glow node avoids a pair of visibility setters every frame.
+    registerNode(object->m_glowSprite, RenderNodeKind::Suppress);
+}
+
+LayoutMirror::NodeVisitAction LayoutMirror::beginNodeVisit(cocos2d::CCNode* node) {
+    if (!m_renderingLayout || !node) return NodeVisitAction::PassThrough;
+    auto const collectCoverage = !m_reportedRenderCoverage;
+    if (collectCoverage) ++m_frameNodeProbeCount;
+
+    auto found = m_renderNodes.find(node);
+    if (found == m_renderNodes.end()) return NodeVisitAction::PassThrough;
+    if (collectCoverage) ++m_frameMappedNodeCount;
+
+    auto const& renderNode = found->second;
+    if (renderNode.kind == RenderNodeKind::Suppress || !node->isVisible()) {
+        if (collectCoverage) ++m_frameSuppressedNodeCount;
+        return NodeVisitAction::Skip;
+    }
+
+    auto* sprite = static_cast<cocos2d::CCSprite*>(node);
+    auto const target = renderNode.kind == RenderNodeKind::Main
+        ? (renderNode.owner->m_isObjectBlack ? kLayoutBlack : kLayoutWhite)
+        : (renderNode.owner->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite);
+    auto const current = sprite->getColor();
+    if (current.r == target.r && current.g == target.g && current.b == target.b) {
+        return NodeVisitAction::PassThrough;
+    }
+
+    m_savedStates.push_back({ node, sprite, nullptr, current, true, false, false });
+    sprite->setColor(target);
+    if (collectCoverage) ++m_frameStyledNodeCount;
+    return NodeVisitAction::Styled;
+}
+
+void LayoutMirror::endNodeVisit(cocos2d::CCNode* node) {
+    if (m_savedStates.empty()) return;
+    auto const state = m_savedStates.back();
+    if (state.node != node) return;
+    if (state.sprite) state.sprite->setColor(state.color);
+    m_savedStates.pop_back();
+}
+
+void LayoutMirror::applyBatchedOverrides() {
+    auto const collectCoverage = !m_reportedRenderCoverage;
+    if (collectCoverage) m_frameActiveObjectCount = m_visibleEntries.size();
+
+    auto styleSprite = [&](cocos2d::CCSprite* sprite, cocos2d::ccColor3B target) {
+        if (!sprite || !sprite->getBatchNode() || !sprite->isVisible()) return;
+        auto const current = sprite->getColor();
+        if (current.r == target.r && current.g == target.g && current.b == target.b) return;
+        m_savedStates.push_back({ sprite, sprite, nullptr, current, true, false, false });
+        sprite->setColor(target);
+        if (collectCoverage) ++m_frameBatchedMutationCount;
+    };
+
+    auto suppressSprite = [&](cocos2d::CCSprite* sprite) {
+        if (!sprite || !sprite->getBatchNode() || !sprite->isVisible()) return;
+        m_savedStates.push_back({ sprite, sprite, nullptr, {}, false, true, true });
+        sprite->cocos2d::CCSprite::setVisible(false);
+        if (collectCoverage) ++m_frameBatchedMutationCount;
+    };
+
+    auto suppressParticle = [&](cocos2d::CCParticleSystemQuad* particle) {
+        if (!particle || !particle->getBatchNode() || !particle->isVisible()) return;
+        m_savedStates.push_back({ particle, nullptr, particle, {}, false, true, true });
+        particle->cocos2d::CCParticleSystem::setVisible(false);
+        if (collectCoverage) ++m_frameBatchedMutationCount;
+    };
+
+    for (auto index : m_visibleEntries) {
+        if (index >= m_entries.size()) continue;
+        auto const& entry = m_entries[index];
+        auto* object = entry.object;
+        if (!object) continue;
+        if (!entry.keep || entry.forceHidden) {
+            suppressSprite(object);
+            suppressSprite(object->m_colorSprite);
+            suppressSprite(object->m_glowSprite);
+            suppressParticle(object->m_particle);
+            continue;
+        }
+
+        styleSprite(object, object->m_isObjectBlack ? kLayoutBlack : kLayoutWhite);
+        styleSprite(
+            object->m_colorSprite,
+            object->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite
+        );
+        suppressSprite(object->m_glowSprite);
+    }
 }
 
 void LayoutMirror::saveAndColorSceneSprite(CCSprite* sprite, ccColor3B color) {
@@ -383,91 +479,47 @@ void LayoutMirror::applyScenePalette(PlayLayer* real) {
     }
 }
 
-void LayoutMirror::applyLayoutOverrides(PlayLayer* real) {
+void LayoutMirror::beginLayoutPass(PlayLayer* real) {
     if (!real || real != m_real) return;
-    ++m_frameSerial;
-    if (m_frameSerial == 0) ++m_frameSerial;
     m_savedStates.clear();
+    m_frameNodeProbeCount = 0;
+    m_frameMappedNodeCount = 0;
+    m_frameStyledNodeCount = 0;
+    m_frameSuppressedNodeCount = 0;
+    m_frameActiveObjectCount = 0;
+    m_frameBatchedMutationCount = 0;
+    m_renderingLayout = true;
+    applyScenePalette(real);
+    applyBatchedOverrides();
+}
 
-    auto touchObject = [&](GameObject* object) {
-        if (!object) return;
-        auto found = m_entryIndex.find(object);
-        if (found == m_entryIndex.end()) return;
-        touchEntry(m_entries[found->second]);
-    };
-
-    // m_visibleObjects is an update/effect cache, not the complete rendered
-    // object set. GD's section grids are the authoritative spatial index. Walk
-    // only the camera rectangle (+1 section for large sprites/transitions), so
-    // hidden/toggled objects still receive the XDBot decision without a 100k+
-    // full-level scan. Entries present in multiple grids are serial-deduped.
-    auto touchSectionGrid = [&](auto const& grid) {
-        if (grid.empty()) return;
-        auto left = std::max(0, real->m_leftSectionIndex - 1);
-        auto right = std::min(static_cast<int>(grid.size()) - 1, real->m_rightSectionIndex + 1);
-        if (left > right) return;
-
-        for (auto sectionX = left; sectionX <= right; ++sectionX) {
-            auto* column = grid[static_cast<std::size_t>(sectionX)];
-            if (!column || column->empty()) continue;
-            auto bottom = std::max(0, real->m_bottomSectionIndex - 1);
-            auto top = std::min(static_cast<int>(column->size()) - 1, real->m_topSectionIndex + 1);
-            if (bottom > top) continue;
-
-            for (auto sectionY = bottom; sectionY <= top; ++sectionY) {
-                auto* objects = (*column)[static_cast<std::size_t>(sectionY)];
-                if (!objects) continue;
-                for (auto* object : *objects) touchObject(object);
-            }
-        }
-    };
-    touchSectionGrid(real->m_sections);
-    touchSectionGrid(real->m_nonEffectObjects);
-
-    // Keep both transient lists as a fallback for runtime/effect objects that
-    // are not stored in the section grids.
-    auto touchRuntimeVector = [&](auto const& objects) {
-        for (auto* object : objects) {
-            touchObject(object);
-        }
-    };
-    touchRuntimeVector(real->m_visibleObjects);
-    touchRuntimeVector(real->m_visibleObjects2);
+void LayoutMirror::endLayoutPass() {
+    restoreLayoutOverrides();
+    m_renderingLayout = false;
     if (!m_reportedRenderCoverage) {
         log::info(
-            "Layout camera grid active: X {}..{}, Y {}..{}, {} unique object overrides from {} live entries",
-            real->m_leftSectionIndex,
-            real->m_rightSectionIndex,
-            real->m_bottomSectionIndex,
-            real->m_topSectionIndex,
-            m_savedStates.size(),
+            "Layout hybrid mask active: {} active objects, {} batched mutations; {} scene nodes, {} mapped, {} styled, {} skipped; {} live objects",
+            m_frameActiveObjectCount,
+            m_frameBatchedMutationCount,
+            m_frameNodeProbeCount,
+            m_frameMappedNodeCount,
+            m_frameStyledNodeCount,
+            m_frameSuppressedNodeCount,
             m_entries.size()
         );
         m_reportedRenderCoverage = true;
     }
-    applyScenePalette(real);
 }
 
 void LayoutMirror::restoreLayoutOverrides() {
     for (auto it = m_savedStates.rbegin(); it != m_savedStates.rend(); ++it) {
-        auto& state = *it;
-        auto* object = state.object;
-        if (!object) continue;
-        object->m_activeMainColorID = state.activeMainColorID;
-        object->m_activeDetailColorID = state.activeDetailColorID;
-        object->m_detailUsesHSV = state.detailUsesHSV;
-        object->m_baseUsesHSV = state.baseUsesHSV;
-        object->m_hasNoGlow = state.hasNoGlow;
-        object->m_isHide = state.isHide;
-        object->setObjectColor(state.mainColor);
-        object->setChildColor(state.detailColor);
-        object->setOpacity(state.opacity);
-        object->setVisible(state.visible);
-        if (state.hadGlow && object->m_glowSprite) {
-            object->m_glowSprite->setColor(state.glowColor);
-            object->m_glowSprite->setVisible(state.glowVisible);
+        if (it->restoreColor && it->sprite) it->sprite->setColor(it->color);
+        if (it->restoreVisible && it->sprite) {
+            it->sprite->cocos2d::CCSprite::setVisible(it->visible);
         }
-        if (state.hadParticle && object->m_particle) object->m_particle->setVisible(state.particleVisible);
+        else if (it->restoreVisible && it->particle) {
+            it->particle->cocos2d::CCParticleSystem::setVisible(it->visible);
+        }
     }
     m_savedStates.clear();
 
@@ -490,8 +542,7 @@ void LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
     auto* scene = director->getRunningScene();
     if (!scene) return;
 
-    applyLayoutOverrides(real);
-    m_renderingLayout = true;
+    beginLayoutPass(real);
 
     glDisable(GL_SCISSOR_TEST);
     glClearColor(0.f, 0.f, 0.f, 1.f);
@@ -507,7 +558,6 @@ void LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
         notification->visit();
     }
 
-    m_renderingLayout = false;
-    restoreLayoutOverrides();
+    endLayoutPass();
 #endif
 }

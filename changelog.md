@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.0
+
+- Replaced the camera-section pre-pass with a hybrid render mask: direct `CCNode::visit` decisions for ordinary nodes plus a visibility-tracked active set for sprites drawn through Cocos batch nodes. Reparented detail sprites, glow and particles no longer depend on object origins or section margins.
+- Removed per-frame visibility, opacity, active-channel, HSV and glow setter churn. Trigger-controlled visibility/opacity remain authoritative; retained sprites only receive a scoped direct color change around their own draw, while removed nodes skip drawing entirely.
+- Added an explicit Geode relative priority after `absolllute.hackmega` so the Spout framebuffer includes HackMega's presentation overlay before the local Layout redraw.
+- Added render hot-path diagnostics reporting visited, mapped, styled and skipped nodes.
+
 ## v0.1.9
 
 - Fixed the v0.1.8 regression where only the Layout background/ground changed: GD's transient visible-object vectors omit ordinary rendered decoration on some levels.
