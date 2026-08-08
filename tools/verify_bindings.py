@@ -23,7 +23,7 @@ checks = {
     "XDBot full transform used": r"LayoutMode::getModifiedString\(std::string\(level->m_levelString\)\)",
     "XDBot serialized plan": r"canonicalWithoutHidden[\s\S]*m_pendingByObjectID",
     "authoritative object binding": r"PlayLayer::addObject\(object\);\s*LayoutMirror::get\(\)\.observeObject\(this, object\);",
-    "camera candidate index": r"m_entryIndex\.find\(object\)[\s\S]*touchVisibleVector\(real->m_visibleObjects\)[\s\S]*touchVisibleVector\(real->m_visibleObjects2\)",
+    "camera section index": r"m_entryIndex\.find\(object\)[\s\S]*touchSectionGrid\(real->m_sections\)[\s\S]*touchSectionGrid\(real->m_nonEffectObjects\)",
     "XDBot retained style": r"object->m_activeMainColorID = -1;[\s\S]*object->setVisible\(object->m_objectID != 2065\);",
     "XDBot actual object colors": r"setObjectColor\(object->m_isObjectBlack[\s\S]*setChildColor\(object->m_isColorSpriteBlack",
     "XDBot full special palette": r"kBackgroundChannel[\s\S]*kGround1Channel[\s\S]*kGround2Channel[\s\S]*kLineChannel[\s\S]*kMG1Channel[\s\S]*kMG2Channel[\s\S]*splitView\(newColors, '\|'\)",
@@ -57,7 +57,7 @@ for forbidden_hook in [
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
-if mod.get("version") != "v0.1.8": failed.append("mod version v0.1.8")
+if mod.get("version") != "v0.1.9": failed.append("mod version v0.1.9")
 
 resources = mod.get("resources", {}).get("files", [])
 for required in [

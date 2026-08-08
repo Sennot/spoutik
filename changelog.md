@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.9
+
+- Fixed the v0.1.8 regression where only the Layout background/ground changed: GD's transient visible-object vectors omit ordinary rendered decoration on some levels.
+- The local pass now walks only the active rectangle of GD's full `m_sections` and `m_nonEffectObjects` grids, retaining complete decoration colors/masking without returning to a 100k+ per-frame scan.
+- Map diagnostics now distinguish missing retained records from removed decoration that GD intentionally did not instantiate.
+
 ## v0.1.8
 
 - Replaced the per-frame scan of every classified level object with O(visible camera candidates) lookups through the complete exact XDBot object map.

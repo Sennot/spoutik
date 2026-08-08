@@ -84,6 +84,8 @@ private:
     std::size_t m_transformedRecordCount = 0;
     std::size_t m_classifiedKeepCount = 0;
     std::size_t m_boundRecordCount = 0;
+    std::size_t m_boundKeepCount = 0;
     std::size_t m_unclassifiedObjectCount = 0;
+    bool m_reportedRenderCoverage = false;
     bool m_renderingLayout = false;
 };

@@ -101,7 +101,7 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("object->setObjectColor(state.mainColor)", self.layout)
         self.assertIn("object->setChildColor(state.detailColor)", self.layout)
 
-    def test_hot_path_indexes_only_gd_camera_candidates(self):
+    def test_hot_path_indexes_gd_camera_sections_without_full_scan(self):
         apply_block = re.search(
             r"void LayoutMirror::applyLayoutOverrides\(PlayLayer\* real\) \{([\s\S]*?)\n\}",
             self.layout,
@@ -109,9 +109,21 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIsNotNone(apply_block)
         block = apply_block.group(1)
         self.assertIn("m_entryIndex.find(object)", block)
-        self.assertIn("touchVisibleVector(real->m_visibleObjects)", block)
-        self.assertIn("touchVisibleVector(real->m_visibleObjects2)", block)
+        self.assertIn("touchSectionGrid(real->m_sections)", block)
+        self.assertIn("touchSectionGrid(real->m_nonEffectObjects)", block)
+        self.assertIn("real->m_leftSectionIndex", block)
+        self.assertIn("real->m_rightSectionIndex", block)
+        self.assertIn("real->m_bottomSectionIndex", block)
+        self.assertIn("real->m_topSectionIndex", block)
+        self.assertIn("touchRuntimeVector(real->m_visibleObjects)", block)
+        self.assertIn("touchRuntimeVector(real->m_visibleObjects2)", block)
+        self.assertIn("Layout camera grid active", block)
         self.assertNotRegex(block, r"for \(auto& entry : m_entries\)")
+
+    def test_uninstantiated_removed_deco_does_not_mark_map_incomplete(self):
+        self.assertIn("pendingKeep", self.layout)
+        self.assertRegex(self.layout, r"if \(m_classifiedKeepCount != m_transformedRecordCount \|\| pendingKeep != 0\)")
+        self.assertIn("m_boundKeepCount", self.layout)
 
     def test_xdbot_addobject_visual_mutation_is_preserved(self):
         sequence = r"object->m_activeMainColorID = -1;\s*object->m_activeDetailColorID = -1;\s*object->m_detailUsesHSV = false;\s*object->m_baseUsesHSV = false;\s*object->m_hasNoGlow = true;\s*object->m_isHide = object->m_objectID == 2065;\s*object->setOpacity\(object->m_objectID == 2065 \? 0 : 255\);\s*object->setVisible\(object->m_objectID != 2065\);"

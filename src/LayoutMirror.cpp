@@ -157,7 +157,9 @@ void LayoutMirror::clear() {
     m_transformedRecordCount = 0;
     m_classifiedKeepCount = 0;
     m_boundRecordCount = 0;
+    m_boundKeepCount = 0;
     m_unclassifiedObjectCount = 0;
+    m_reportedRenderCoverage = false;
     m_renderingLayout = false;
 }
 
@@ -239,6 +241,7 @@ void LayoutMirror::observeObject(PlayLayer* real, GameObject* object) {
         keep = pending.keep;
         forceHidden = pending.forceHidden;
         ++m_boundRecordCount;
+        if (pending.keep) ++m_boundKeepCount;
     }
     else {
         // This covers runtime-created objects that do not originate in the
@@ -257,26 +260,31 @@ void LayoutMirror::finishFor(PlayLayer* real) {
     if (!real || real != m_real || m_modifiedString.empty()) return;
 
     std::size_t pending = 0;
+    std::size_t pendingKeep = 0;
     for (auto const& [id, records] : m_pendingByObjectID) {
         (void)id;
         pending += records.size();
+        pendingKeep += static_cast<std::size_t>(std::count_if(
+            records.begin(), records.end(), [](PendingRecord const& record) { return record.keep; }
+        ));
     }
 
     log::info(
-        "XDBot exact layout map ready: {} source records, {} transformed, {} bound, {} kept, {} runtime-only, {} pending",
+        "XDBot exact layout map ready: {} source records, {} transformed, {} bound, {} retained bound, {} runtime-only, {} pending ({} retained)",
         m_originalRecordCount,
         m_transformedRecordCount,
         m_boundRecordCount,
-        m_classifiedKeepCount,
+        m_boundKeepCount,
         m_unclassifiedObjectCount,
-        pending
+        pending,
+        pendingKeep
     );
-    if (m_classifiedKeepCount != m_transformedRecordCount || pending != 0) {
+    if (m_classifiedKeepCount != m_transformedRecordCount || pendingKeep != 0) {
         log::warn(
-            "Layout map is incomplete (kept {}/{}, pending {}). Ensure XDBot's own Layout Mode is OFF and include this line in the next log",
-            m_classifiedKeepCount,
+            "Layout map is incomplete (retained bound {}/{}, retained pending {}). Ensure XDBot's own Layout Mode is OFF and include this line in the next log",
+            m_boundKeepCount,
             m_transformedRecordCount,
-            pending
+            pendingKeep
         );
     }
 }
@@ -381,21 +389,62 @@ void LayoutMirror::applyLayoutOverrides(PlayLayer* real) {
     if (m_frameSerial == 0) ++m_frameSerial;
     m_savedStates.clear();
 
-    // GD already maintains the camera candidate sets used by its own object
-    // renderer. Resolve those pointers through the complete exact XDBot map
-    // instead of scanning every serialized object. This keeps the hot path
-    // proportional to what can be drawn, even on 100k+ object levels. The two
-    // sets are intentionally both consumed and frameSerial de-duplicates them.
-    auto touchVisibleVector = [&](auto const& objects) {
-        for (auto* object : objects) {
-            if (!object) continue;
-            auto found = m_entryIndex.find(object);
-            if (found == m_entryIndex.end()) continue;
-            touchEntry(m_entries[found->second]);
+    auto touchObject = [&](GameObject* object) {
+        if (!object) return;
+        auto found = m_entryIndex.find(object);
+        if (found == m_entryIndex.end()) return;
+        touchEntry(m_entries[found->second]);
+    };
+
+    // m_visibleObjects is an update/effect cache, not the complete rendered
+    // object set. GD's section grids are the authoritative spatial index. Walk
+    // only the camera rectangle (+1 section for large sprites/transitions), so
+    // hidden/toggled objects still receive the XDBot decision without a 100k+
+    // full-level scan. Entries present in multiple grids are serial-deduped.
+    auto touchSectionGrid = [&](auto const& grid) {
+        if (grid.empty()) return;
+        auto left = std::max(0, real->m_leftSectionIndex - 1);
+        auto right = std::min(static_cast<int>(grid.size()) - 1, real->m_rightSectionIndex + 1);
+        if (left > right) return;
+
+        for (auto sectionX = left; sectionX <= right; ++sectionX) {
+            auto* column = grid[static_cast<std::size_t>(sectionX)];
+            if (!column || column->empty()) continue;
+            auto bottom = std::max(0, real->m_bottomSectionIndex - 1);
+            auto top = std::min(static_cast<int>(column->size()) - 1, real->m_topSectionIndex + 1);
+            if (bottom > top) continue;
+
+            for (auto sectionY = bottom; sectionY <= top; ++sectionY) {
+                auto* objects = (*column)[static_cast<std::size_t>(sectionY)];
+                if (!objects) continue;
+                for (auto* object : *objects) touchObject(object);
+            }
         }
     };
-    touchVisibleVector(real->m_visibleObjects);
-    touchVisibleVector(real->m_visibleObjects2);
+    touchSectionGrid(real->m_sections);
+    touchSectionGrid(real->m_nonEffectObjects);
+
+    // Keep both transient lists as a fallback for runtime/effect objects that
+    // are not stored in the section grids.
+    auto touchRuntimeVector = [&](auto const& objects) {
+        for (auto* object : objects) {
+            touchObject(object);
+        }
+    };
+    touchRuntimeVector(real->m_visibleObjects);
+    touchRuntimeVector(real->m_visibleObjects2);
+    if (!m_reportedRenderCoverage) {
+        log::info(
+            "Layout camera grid active: X {}..{}, Y {}..{}, {} unique object overrides from {} live entries",
+            real->m_leftSectionIndex,
+            real->m_rightSectionIndex,
+            real->m_bottomSectionIndex,
+            real->m_topSectionIndex,
+            m_savedStates.size(),
+            m_entries.size()
+        );
+        m_reportedRenderCoverage = true;
+    }
     applyScenePalette(real);
 }
 
