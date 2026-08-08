@@ -7,7 +7,7 @@
 
 using namespace geode::prelude;
 
-// v0.1.5 deliberately has ONE gameplay world only.
+// This mod deliberately has ONE gameplay world only.
 // The decorated authoritative PlayLayer is rendered normally and sent to Spout.
 // At swap time we temporarily apply the XDBot-derived visual mask, render that
 // same scene into the local backbuffer, then restore every touched visual field.
@@ -15,10 +15,13 @@ using namespace geode::prelude;
 
 class $modify(SpoutLayoutPlayLayer, PlayLayer) {
     static void onModify(auto& self) {
-        // Build the render mask after ordinary mods finished initializing the
-        // authoritative layer, so m_objects and visibility collections exist.
+        // Prepare the XDBot record plan immediately before the authoritative
+        // init, then bind records as that same PlayLayer adds its real objects.
         if (!self.setHookPriorityPre("PlayLayer::init", Priority::VeryLate)) {
             log::warn("Could not set PlayLayer::init layout-map priority to VeryLate");
+        }
+        if (!self.setHookPriorityPre("PlayLayer::addObject", Priority::VeryLate)) {
+            log::warn("Could not set PlayLayer::addObject layout-map priority to VeryLate");
         }
         if (!self.setHookPriorityPre("PlayLayer::onQuit", Priority::Last)) {
             log::warn("Could not set PlayLayer::onQuit cleanup priority to Last");
@@ -26,9 +29,19 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
     }
 
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
-        if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
-        LayoutMirror::get().createFor(this, level);
+        auto& layout = LayoutMirror::get();
+        layout.prepareFor(this, level);
+        if (!PlayLayer::init(level, useReplay, dontCreateObjects)) {
+            layout.destroyFor(this);
+            return false;
+        }
+        layout.finishFor(this);
         return true;
+    }
+
+    void addObject(GameObject* object) {
+        PlayLayer::addObject(object);
+        LayoutMirror::get().observeObject(this, object);
     }
 
     void onQuit() {

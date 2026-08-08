@@ -1,12 +1,10 @@
 #include "LayoutMirror.hpp"
 #include "layout_mode.hpp"
 #include <Geode/loader/Mod.hpp>
-#include <cmath>
+#include <algorithm>
 #include <cstdlib>
-#include <deque>
-#include <limits>
 #include <string_view>
-#include <unordered_map>
+#include <unordered_set>
 
 #ifdef GEODE_IS_WINDOWS
 #include <GL/gl.h>
@@ -15,35 +13,20 @@
 using namespace geode::prelude;
 
 namespace {
-    constexpr double kPositionQuantization = 1000.0;
+    constexpr cocos2d::ccColor3B kLayoutWhite {255, 255, 255};
+    constexpr cocos2d::ccColor3B kLayoutBlack {0, 0, 0};
+    constexpr int kBackgroundChannel = 1000;
+    constexpr int kGround1Channel = 1001;
+    constexpr int kGround2Channel = 1009;
+    constexpr int kLineChannel = 1002;
+    constexpr int kMG1Channel = 1013;
+    constexpr int kMG2Channel = 1014;
 
-    struct ObjectKey {
-        int id = 0;
-        long long x = 0;
-        long long y = 0;
-
-        bool operator==(ObjectKey const& other) const {
-            return id == other.id && x == other.x && y == other.y;
-        }
-    };
-
-    struct ObjectKeyHash {
-        std::size_t operator()(ObjectKey const& key) const noexcept {
-            auto h1 = std::hash<int>{}(key.id);
-            auto h2 = std::hash<long long>{}(key.x);
-            auto h3 = std::hash<long long>{}(key.y);
-            return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2))
-                      ^ (h3 + 0x9e3779b97f4a7c15ULL + (h2 << 6) + (h2 >> 2));
-        }
-    };
-
-    struct LayoutRecord {
+    struct ParsedRecord {
+        int objectID = 0;
         bool hidden = false;
+        std::string canonicalWithoutHidden;
     };
-
-    long long quantize(double value) {
-        return std::llround(value * kPositionQuantization);
-    }
 
     std::vector<std::string_view> splitView(std::string const& value, char delimiter) {
         std::vector<std::string_view> out;
@@ -68,18 +51,9 @@ namespace {
         return true;
     }
 
-    bool parseDouble(std::string_view text, double& out) {
-        if (text.empty()) return false;
-        std::string tmp(text);
-        char* end = nullptr;
-        auto value = std::strtod(tmp.c_str(), &end);
-        if (!end || *end != '\0') return false;
-        out = value;
-        return true;
-    }
-
-    bool parseLayoutRecord(std::string_view record, ObjectKey& key, bool& hidden) {
+    bool parseObjectRecord(std::string_view record, ParsedRecord& out) {
         if (record.empty()) return false;
+
         std::vector<std::string_view> parts;
         std::size_t begin = 0;
         while (begin <= record.size()) {
@@ -90,25 +64,75 @@ namespace {
             begin = end + 1;
         }
 
-        int id = 0;
-        double x = std::numeric_limits<double>::quiet_NaN();
-        double y = std::numeric_limits<double>::quiet_NaN();
-        hidden = false;
-
+        out = {};
+        out.canonicalWithoutHidden.reserve(record.size());
         for (std::size_t i = 0; i + 1 < parts.size(); i += 2) {
             int property = 0;
             if (!parseInt(parts[i], property)) continue;
-            if (property == 1) parseInt(parts[i + 1], id);
-            else if (property == 2) parseDouble(parts[i + 1], x);
-            else if (property == 3) parseDouble(parts[i + 1], y);
-            else if (property == 135) {
-                int v = 0;
-                if (parseInt(parts[i + 1], v)) hidden = v != 0;
+
+            if (property == 1) parseInt(parts[i + 1], out.objectID);
+            if (property == 135) {
+                int value = 0;
+                if (parseInt(parts[i + 1], value)) out.hidden = value != 0;
+                continue;
             }
+
+            // XDBot getModifiedString preserves every property except 135 for
+            // retained records. Keeping their serialized order gives us an
+            // exact, table-independent subsequence comparison.
+            out.canonicalWithoutHidden.append(parts[i]);
+            out.canonicalWithoutHidden.push_back('\x1f');
+            out.canonicalWithoutHidden.append(parts[i + 1]);
+            out.canonicalWithoutHidden.push_back('\x1e');
+        }
+        return out.objectID != 0;
+    }
+
+    std::vector<ParsedRecord> parseObjectRecords(std::string const& levelString) {
+        std::vector<ParsedRecord> records;
+        auto strings = splitView(levelString, ';');
+        if (strings.size() <= 1) return records;
+
+        records.reserve(strings.size() - 1);
+        for (std::size_t i = 1; i < strings.size(); ++i) {
+            ParsedRecord record;
+            if (parseObjectRecord(strings[i], record)) records.push_back(std::move(record));
+        }
+        return records;
+    }
+
+    bool parsePaletteRecord(std::string_view record, int& channel, cocos2d::ccColor3B& color) {
+        if (record.empty()) return false;
+        std::vector<std::string_view> parts;
+        std::size_t begin = 0;
+        while (begin <= record.size()) {
+            auto end = record.find('_', begin);
+            if (end == std::string_view::npos) end = record.size();
+            parts.emplace_back(record.substr(begin, end - begin));
+            if (end == record.size()) break;
+            begin = end + 1;
         }
 
-        if (id == 0 || !std::isfinite(x) || !std::isfinite(y)) return false;
-        key = { id, quantize(x), quantize(y) };
+        int red = -1;
+        int green = -1;
+        int blue = -1;
+        channel = 0;
+        for (std::size_t i = 0; i + 1 < parts.size(); i += 2) {
+            int property = 0;
+            int value = 0;
+            if (!parseInt(parts[i], property) || !parseInt(parts[i + 1], value)) continue;
+            if (property == 1) red = value;
+            else if (property == 2) green = value;
+            else if (property == 3) blue = value;
+            else if (property == 6) channel = value;
+        }
+
+        if (channel == 0 || red < 0 || green < 0 || blue < 0) return false;
+        color = {
+            static_cast<unsigned char>(std::clamp(red, 0, 255)),
+            static_cast<unsigned char>(std::clamp(green, 0, 255)),
+            static_cast<unsigned char>(std::clamp(blue, 0, 255)),
+        };
         return true;
     }
 }
@@ -123,114 +147,138 @@ void LayoutMirror::clear() {
     m_real = nullptr;
     m_modifiedString.clear();
     m_entries.clear();
-    m_entryIndex.clear();
+    m_pendingByObjectID.clear();
+    m_layoutPalette.clear();
     m_savedStates.clear();
+    m_savedSceneSprites.clear();
     m_frameSerial = 0;
+    m_originalRecordCount = 0;
+    m_transformedRecordCount = 0;
+    m_classifiedKeepCount = 0;
+    m_boundRecordCount = 0;
+    m_unclassifiedObjectCount = 0;
     m_renderingLayout = false;
-    m_backgroundTouched = false;
 }
 
-void LayoutMirror::createFor(PlayLayer* real, GJGameLevel* level) {
+void LayoutMirror::prepareFor(PlayLayer* real, GJGameLevel* level) {
     clear();
     if (!real || !level) return;
     if (!Mod::get()->getSettingValue<bool>("enabled")) return;
 
     m_real = real;
     try {
-        // This is the full pinned XDBot preprocessing path. Unlike the old
-        // implementation, its output is used as a render mask over the one
-        // authoritative PlayLayer instead of booting a second gameplay world.
+        // Run the exact pinned XDBot preprocessing before the authoritative
+        // PlayLayer begins adding objects. We only derive render metadata from
+        // it; the real level string and gameplay world are never replaced.
         m_modifiedString = LayoutMode::getModifiedString(std::string(level->m_levelString));
+        buildLayoutPlan(level);
     }
     catch (std::exception const& e) {
         log::error("XDBot LayoutMode preprocessing failed: {}", e.what());
         clear();
-        return;
+    }
+}
+
+void LayoutMirror::buildLayoutPlan(GJGameLevel* level) {
+    if (!level || m_modifiedString.empty()) return;
+
+    auto originalString = ZipUtils::decompressString(level->m_levelString.c_str(), true, 0);
+    auto originalRecords = parseObjectRecords(originalString);
+    auto transformedRecords = parseObjectRecords(m_modifiedString);
+
+    m_originalRecordCount = originalRecords.size();
+    m_transformedRecordCount = transformedRecords.size();
+    m_entries.reserve(originalRecords.size());
+
+    // Consume the upstream palette itself instead of copying its RGB values.
+    // Channel IDs are the six GD special channels emitted by XDBot newColors.
+    for (auto record : splitView(newColors, '|')) {
+        int channel = 0;
+        cocos2d::ccColor3B color;
+        if (parsePaletteRecord(record, channel, color)) m_layoutPalette[channel] = color;
     }
 
-    buildLayoutMap(real);
+    // XDBot emits a stable subsequence of the source records. The only object
+    // property it changes is 135 (Hide), so comparing every other serialized
+    // property classifies removed deco without duplicating any XDBot ID table.
+    std::size_t transformedIndex = 0;
+    for (auto const& original : originalRecords) {
+        bool keep = false;
+        bool forceHidden = false;
+        if (transformedIndex < transformedRecords.size()) {
+            auto const& transformed = transformedRecords[transformedIndex];
+            if (original.canonicalWithoutHidden == transformed.canonicalWithoutHidden) {
+                keep = true;
+                forceHidden = transformed.hidden || original.objectID == 2065;
+                ++transformedIndex;
+                ++m_classifiedKeepCount;
+            }
+        }
+        m_pendingByObjectID[original.objectID].push_back({ keep, forceHidden });
+    }
+
+    if (transformedIndex != transformedRecords.size()) {
+        log::error(
+            "XDBot serialized layout alignment incomplete: consumed {} of {} transformed records",
+            transformedIndex, transformedRecords.size()
+        );
+    }
+}
+
+void LayoutMirror::observeObject(PlayLayer* real, GameObject* object) {
+    if (!real || real != m_real || !object || m_modifiedString.empty()) return;
+
+    bool keep = true;
+    bool forceHidden = object->m_objectID == 2065;
+    auto found = m_pendingByObjectID.find(object->m_objectID);
+    if (found != m_pendingByObjectID.end() && !found->second.empty()) {
+        auto pending = found->second.front();
+        found->second.pop_front();
+        keep = pending.keep;
+        forceHidden = pending.forceHidden;
+        ++m_boundRecordCount;
+    }
+    else {
+        // This covers runtime-created objects that do not originate in the
+        // serialized level. It is the exact pinned XDBot addObject decision.
+        keep = !excludedTriggerIDs.contains(object->m_objectID);
+        forceHidden = object->m_objectID == 2065;
+        ++m_unclassifiedObjectCount;
+    }
+
+    m_entries.push_back({ object, keep, forceHidden, 0 });
+}
+
+void LayoutMirror::finishFor(PlayLayer* real) {
+    if (!real || real != m_real || m_modifiedString.empty()) return;
+
+    std::size_t pending = 0;
+    for (auto const& [id, records] : m_pendingByObjectID) {
+        (void)id;
+        pending += records.size();
+    }
+
+    log::info(
+        "XDBot exact layout map ready: {} source records, {} transformed, {} bound, {} kept, {} runtime-only, {} pending",
+        m_originalRecordCount,
+        m_transformedRecordCount,
+        m_boundRecordCount,
+        m_classifiedKeepCount,
+        m_unclassifiedObjectCount,
+        pending
+    );
+    if (m_classifiedKeepCount != m_transformedRecordCount || pending != 0) {
+        log::warn(
+            "Layout map is incomplete (kept {}/{}, pending {}). Ensure XDBot's own Layout Mode is OFF and include this line in the next log",
+            m_classifiedKeepCount,
+            m_transformedRecordCount,
+            pending
+        );
+    }
 }
 
 void LayoutMirror::destroyFor(PlayLayer* real) {
     if (!real || real == m_real) clear();
-}
-
-void LayoutMirror::buildLayoutMap(PlayLayer* real) {
-    if (!real || real != m_real || m_modifiedString.empty()) return;
-
-    std::unordered_map<ObjectKey, std::deque<LayoutRecord>, ObjectKeyHash> records;
-    auto strings = splitView(m_modifiedString, ';');
-    std::size_t parsedRecords = 0;
-    for (std::size_t i = 1; i < strings.size(); ++i) {
-        ObjectKey key;
-        bool hidden = false;
-        if (!parseLayoutRecord(strings[i], key, hidden)) continue;
-        records[key].push_back({ hidden });
-        ++parsedRecords;
-    }
-
-    auto* objects = real->m_objects;
-    if (!objects) {
-        log::error("Authoritative PlayLayer has no object array; Layout render mask disabled");
-        return;
-    }
-
-    m_entries.reserve(objects->count());
-    m_entryIndex.reserve(objects->count());
-    std::size_t matched = 0;
-    std::size_t keptVisible = 0;
-
-    for (unsigned i = 0; i < objects->count(); ++i) {
-        auto* object = typeinfo_cast<GameObject*>(objects->objectAtIndex(i));
-        if (!object) continue;
-
-        auto const start = object->m_startPosition;
-        ObjectKey key { object->m_objectID, quantize(start.x), quantize(start.y) };
-        bool keep = false;
-        bool forceHidden = false;
-
-        auto consume = [&](ObjectKey const& candidate) -> bool {
-            auto found = records.find(candidate);
-            if (found == records.end() || found->second.empty()) return false;
-            auto rec = found->second.front();
-            found->second.pop_front();
-            keep = true;
-            forceHidden = rec.hidden || object->m_objectID == 2065;
-            ++matched;
-            if (!forceHidden) ++keptVisible;
-            return true;
-        };
-
-        if (!consume(key)) {
-            // Accommodate the tiny float round-trip differences between the
-            // serialized level and GameObject::m_startPosition.
-            bool consumed = false;
-            for (long long dx = -1; dx <= 1 && !consumed; ++dx) {
-                for (long long dy = -1; dy <= 1 && !consumed; ++dy) {
-                    if (dx == 0 && dy == 0) continue;
-                    // Windows headers define `near` as an empty legacy macro.
-                    // Keep this identifier macro-safe for the Win64 build.
-                    ObjectKey nearbyKey { key.id, key.x + dx, key.y + dy };
-                    consumed = consume(nearbyKey);
-                }
-            }
-        }
-
-        auto index = m_entries.size();
-        m_entries.push_back({ object, keep, forceHidden, 0 });
-        m_entryIndex.emplace(object, index);
-    }
-
-    log::info(
-        "XDBot visual layout map ready: {} real objects, {} transformed records, {} matched, {} locally visible",
-        m_entries.size(), parsedRecords, matched, keptVisible
-    );
-    if (parsedRecords && matched * 100 < parsedRecords * 90) {
-        log::warn(
-            "Only {} of {} XDBot layout records mapped to live objects; please include this line in the next test log",
-            matched, parsedRecords
-        );
-    }
 }
 
 void LayoutMirror::touchEntry(LayoutEntry& entry) {
@@ -248,8 +296,12 @@ void LayoutMirror::touchEntry(LayoutEntry& entry) {
     state.baseUsesHSV = object->m_baseUsesHSV;
     state.hasNoGlow = object->m_hasNoGlow;
     state.isHide = object->m_isHide;
+    state.mainColor = object->getColor();
+    state.hadColorSprite = object->m_colorSprite != nullptr;
+    state.detailColor = state.hadColorSprite ? object->m_colorSprite->getColor() : kLayoutWhite;
     state.hadGlow = object->m_glowSprite != nullptr;
     state.glowVisible = state.hadGlow && object->m_glowSprite->isVisible();
+    state.glowColor = state.hadGlow ? object->m_glowSprite->getColor() : kLayoutWhite;
     state.hadParticle = object->m_particle != nullptr;
     state.particleVisible = state.hadParticle && object->m_particle->isVisible();
     m_savedStates.push_back(state);
@@ -261,8 +313,8 @@ void LayoutMirror::touchEntry(LayoutEntry& entry) {
         return;
     }
 
-    // Exact XDBot addObject visual mutation. Excluded triggers and removed deco
-    // are represented by entry.keep == false, so they never reach this block.
+    // Exact pinned XDBot addObject state, plus an immediate color refresh for
+    // objects that were originally initialized with the decorated color map.
     object->m_activeMainColorID = -1;
     object->m_activeDetailColorID = -1;
     object->m_detailUsesHSV = false;
@@ -271,7 +323,52 @@ void LayoutMirror::touchEntry(LayoutEntry& entry) {
     object->m_isHide = object->m_objectID == 2065;
     object->setOpacity(object->m_objectID == 2065 ? 0 : 255);
     object->setVisible(object->m_objectID != 2065);
+    object->setObjectColor(object->m_isObjectBlack ? kLayoutBlack : kLayoutWhite);
+    object->setChildColor(object->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite);
     if (object->m_glowSprite) object->m_glowSprite->setVisible(false);
+}
+
+void LayoutMirror::saveAndColorSceneSprite(CCSprite* sprite, ccColor3B color) {
+    if (!sprite) return;
+    for (auto const& state : m_savedSceneSprites) {
+        if (state.sprite == sprite) return;
+    }
+    m_savedSceneSprites.push_back({ sprite, sprite->getColor(), sprite->getOpacity() });
+    sprite->setColor(color);
+    sprite->setOpacity(255);
+}
+
+void LayoutMirror::applyScenePalette(PlayLayer* real) {
+    if (!real) return;
+    m_savedSceneSprites.clear();
+
+    auto colorFor = [&](int channel, ccColor3B fallback) {
+        auto found = m_layoutPalette.find(channel);
+        return found == m_layoutPalette.end() ? fallback : found->second;
+    };
+
+    // Read all six special-channel colors directly from pinned XDBot newColors.
+    auto background = colorFor(kBackgroundChannel, {40, 125, 255});
+    auto ground1 = colorFor(kGround1Channel, {0, 102, 255});
+    auto ground2 = colorFor(kGround2Channel, {0, 102, 255});
+    auto line = colorFor(kLineChannel, kLayoutWhite);
+    auto mg1 = colorFor(kMG1Channel, {40, 125, 255});
+    auto mg2 = colorFor(kMG2Channel, {40, 125, 255});
+    saveAndColorSceneSprite(real->m_background, background);
+
+    auto applyGround = [&](GJGroundLayer* ground) {
+        if (!ground) return;
+        saveAndColorSceneSprite(ground->m_ground1Sprite, ground1);
+        saveAndColorSceneSprite(ground->m_ground2Sprite, ground2);
+        saveAndColorSceneSprite(ground->m_lineSprite, line);
+    };
+    applyGround(real->m_groundLayer);
+    applyGround(real->m_groundLayer2);
+
+    if (real->m_middleground) {
+        saveAndColorSceneSprite(real->m_middleground->m_ground1Sprite, mg1);
+        saveAndColorSceneSprite(real->m_middleground->m_ground2Sprite, mg2);
+    }
 }
 
 void LayoutMirror::applyLayoutOverrides(PlayLayer* real) {
@@ -280,32 +377,13 @@ void LayoutMirror::applyLayoutOverrides(PlayLayer* real) {
     if (m_frameSerial == 0) ++m_frameSerial;
     m_savedStates.clear();
 
-    // Kept XDBot objects must be made visible even if an original alpha/toggle
-    // trigger hid them. This list is normally far smaller than the decorated
-    // source level, keeping the per-frame work bounded by layout complexity.
+    // Scan the complete classified object set. Restricting removed decoration
+    // to GD's two visible caches leaked nodes whenever another mod or a camera
+    // transition changed cache membership between the two render passes.
     for (auto& entry : m_entries) {
-        if (entry.keep) touchEntry(entry);
+        if (entry.keep || (entry.object && entry.object->isVisible())) touchEntry(entry);
     }
-
-    // Removed decoration only needs touching when GD currently considers it
-    // visible. This avoids toggling tens of thousands of off-camera deco nodes.
-    auto hideVisibleVector = [&](auto const& vec) {
-        for (auto* object : vec) {
-            if (!object) continue;
-            auto found = m_entryIndex.find(object);
-            if (found == m_entryIndex.end()) continue;
-            auto& entry = m_entries[found->second];
-            if (!entry.keep) touchEntry(entry);
-        }
-    };
-    hideVisibleVector(real->m_visibleObjects);
-    hideVisibleVector(real->m_visibleObjects2);
-
-    if (real->m_background) {
-        m_savedBackgroundColor = real->m_background->getColor();
-        m_backgroundTouched = true;
-        real->m_background->setColor({40, 125, 255});
-    }
+    applyScenePalette(real);
 }
 
 void LayoutMirror::restoreLayoutOverrides() {
@@ -319,17 +397,24 @@ void LayoutMirror::restoreLayoutOverrides() {
         object->m_baseUsesHSV = state.baseUsesHSV;
         object->m_hasNoGlow = state.hasNoGlow;
         object->m_isHide = state.isHide;
+        object->setObjectColor(state.mainColor);
+        object->setChildColor(state.detailColor);
         object->setOpacity(state.opacity);
         object->setVisible(state.visible);
-        if (state.hadGlow && object->m_glowSprite) object->m_glowSprite->setVisible(state.glowVisible);
+        if (state.hadGlow && object->m_glowSprite) {
+            object->m_glowSprite->setColor(state.glowColor);
+            object->m_glowSprite->setVisible(state.glowVisible);
+        }
         if (state.hadParticle && object->m_particle) object->m_particle->setVisible(state.particleVisible);
     }
     m_savedStates.clear();
 
-    if (m_backgroundTouched && m_real && m_real->m_background) {
-        m_real->m_background->setColor(m_savedBackgroundColor);
+    for (auto it = m_savedSceneSprites.rbegin(); it != m_savedSceneSprites.rend(); ++it) {
+        if (!it->sprite) continue;
+        it->sprite->setColor(it->color);
+        it->sprite->setOpacity(it->opacity);
     }
-    m_backgroundTouched = false;
+    m_savedSceneSprites.clear();
 }
 
 void LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
@@ -354,8 +439,7 @@ void LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
 
     // Render the SAME authoritative scene a second time. Physics, camera,
     // practice checkpoints, StartPos, music time and mod HUD therefore remain
-    // byte-for-byte the real game state. ShaderLayer::visit is bypassed only
-    // while m_renderingLayout is true (see main.cpp).
+    // the real game state. ShaderLayer::visit is bypassed only for this pass.
     scene->visit();
     if (auto* notification = director->getNotificationNode(); notification && notification->isVisible()) {
         notification->visit();

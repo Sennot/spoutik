@@ -59,16 +59,51 @@ class RuntimeRegressionTests(unittest.TestCase):
 
     def test_xdbot_output_drives_live_object_render_mask(self):
         self.assertIn("LayoutMode::getModifiedString", self.layout)
-        self.assertIn("buildLayoutMap(real)", self.layout)
+        self.assertIn("buildLayoutPlan(level)", self.layout)
+        self.assertIn("canonicalWithoutHidden", self.layout)
+        self.assertIn("m_pendingByObjectID", self.layout)
+        self.assertIn("observeObject", self.layout)
         self.assertIn("entry.keep", self.layout)
-        self.assertIn("m_startPosition", self.layout)
+        self.assertNotIn("m_startPosition", self.layout)
+        self.assertNotIn("ObjectKey", self.layout)
 
     def test_layout_map_avoids_windows_near_macro(self):
-        # windows.h retains `near` as an empty compatibility macro. Using it as
-        # a variable name turns consume(near) into consume() under Win64 Clang.
+        # windows.h retains `near` as an empty compatibility macro.
         self.assertNotRegex(self.layout, r"\bObjectKey\s+near\b")
         self.assertNotIn("consume(near)", self.layout)
-        self.assertIn("consume(nearbyKey)", self.layout)
+
+    def test_objects_are_bound_during_authoritative_addobject(self):
+        self.assertRegex(
+            self.main,
+            r"void addObject\(GameObject\* object\) \{\s*PlayLayer::addObject\(object\);\s*LayoutMirror::get\(\)\.observeObject\(this, object\);",
+        )
+        self.assertLess(self.main.index("layout.prepareFor(this, level)"), self.main.index("PlayLayer::init(level"))
+        self.assertLess(self.main.index("PlayLayer::init(level"), self.main.index("layout.finishFor(this)"))
+
+    def test_full_xdbot_special_palette_is_applied(self):
+        for token in (
+            "splitView(newColors, '|')",
+            "kBackgroundChannel = 1000",
+            "kGround1Channel = 1001",
+            "kGround2Channel = 1009",
+            "kLineChannel = 1002",
+            "kMG1Channel = 1013",
+            "kMG2Channel = 1014",
+            "real->m_groundLayer",
+            "real->m_groundLayer2",
+            "real->m_middleground",
+        ):
+            self.assertIn(token, self.layout)
+
+    def test_runtime_object_colors_are_overridden_and_restored(self):
+        self.assertIn("object->setObjectColor(object->m_isObjectBlack ? kLayoutBlack : kLayoutWhite)", self.layout)
+        self.assertIn("object->setChildColor(object->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite)", self.layout)
+        self.assertIn("object->setObjectColor(state.mainColor)", self.layout)
+        self.assertIn("object->setChildColor(state.detailColor)", self.layout)
+
+    def test_removed_deco_does_not_depend_on_visible_object_caches(self):
+        self.assertNotIn("m_visibleObjects", self.layout)
+        self.assertRegex(self.layout, r"for \(auto& entry : m_entries\)[\s\S]*touchEntry\(entry\)")
 
     def test_xdbot_addobject_visual_mutation_is_preserved(self):
         sequence = r"object->m_activeMainColorID = -1;\s*object->m_activeDetailColorID = -1;\s*object->m_detailUsesHSV = false;\s*object->m_baseUsesHSV = false;\s*object->m_hasNoGlow = true;\s*object->m_isHide = object->m_objectID == 2065;\s*object->setOpacity\(object->m_objectID == 2065 \? 0 : 255\);\s*object->setVisible\(object->m_objectID != 2065\);"

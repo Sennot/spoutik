@@ -39,36 +39,26 @@ The bootstrap keeps pristine upstream copies under `vendor/xdbot/upstream/` and 
 The compiled adaptation changes only two integration details:
 
 1. XDBot's umbrella include is replaced by this project's small `xdbot_compat.hpp`.
-2. XDBot's global Geode hook wrapper is removed because applying it to the real `PlayLayer` would destroy the decorated world OBS needs. The actual implementation beginning at `LayoutMode::getModifiedString` is preserved verbatim, and the same `addObject` behavior is recreated only for the hidden mirror.
+2. XDBot's global Geode hook wrapper is removed because applying it to the real `PlayLayer` would destroy the decorated world OBS needs. The actual implementation beginning at `LayoutMode::getModifiedString` is preserved verbatim; its output is converted into render metadata for the one authoritative `PlayLayer`.
 
-CI verifies the transform against the pristine downloaded files and separately compares the mirror `addObject` mutation sequence against the pinned upstream hook. The complete XDBot object sets (`excludedTriggerIDs`, `importantTriggerIDs`, `decoObjectIDs`, `solidObjectIDs`, colors, etc.) are therefore not retyped or shortened in this project.
+CI verifies the transform against the pristine downloaded files and separately compares the local render mutation sequence against the pinned upstream `addObject` hook. The complete XDBot object sets (`excludedTriggerIDs`, `importantTriggerIDs`, `decoObjectIDs`, `solidObjectIDs`, colors, etc.) are therefore not retyped or shortened in this project.
 
-## Why there is a second lightweight PlayLayer
+## Exact single-PlayLayer mapping
 
-XDBot's Layout Mode is a **pre-load transformation**. It changes `m_levelString` before `PlayLayer::init`, so a single PlayLayer cannot simultaneously contain both the original decorated object graph and the XDBot-stripped one.
+There is no hidden or secondary `PlayLayer`. Before the real `PlayLayer::init`, the mod runs the pinned XDBot transformation and compares its stable output subsequence with the decompressed original serialized records. Property `135` is normalized because it is the only per-object property XDBot adds or removes.
 
-This mod therefore keeps:
+While the real decorated layer performs its ordinary `addObject` calls, each live `GameObject*` is bound to that precomputed record classification by object-ID occurrence order. This avoids the invalid runtime-position comparison used before v0.1.7 and preserves XDBot's exact decisions for removed deco, important groups, solids and hidden objects.
 
-- the real decorated `PlayLayer` as the only authoritative gameplay/audio run;
-- a private visual-only `PlayLayer` built from XDBot's transformed level string.
+During the local pass:
 
-The mirror also receives its **own cloned `GJGameLevel`**, so per-level state writes from mirror resets cannot mutate the user's real level object. Its `levelComplete()`, `commitJumps()` and `updateAttempts()` paths are blocked (including during mirror construction), and mirror-side `onQuit()` is suppressed. This prevents the known hookable completion/jump-commit/attempt/scene-exit side effects from being published by the visual simulation. `incrementJumps()` itself is inline on Win64, so the protection is intentionally placed at its persistent `commitJumps()` boundary rather than pretending an inline function can be hooked.
+- removed objects are hidden using the complete classified object list, independent of GD's transient visible-object caches;
+- retained objects receive the pinned XDBot `addObject` state plus immediate white/black main/detail sprite colors;
+- BG, G1, G2, LINE, MG1 and MG2 receive every special color from pinned XDBot `newColors`;
+- all touched fields, colors, opacity and visibility are restored in the same frame after the local redraw.
 
 ## StartPos / practice design
 
-The decorated real `PlayLayer` remains the authority for FMOD, timing and gameplay:
-
-- mirror `prepareMusic` / `startMusic` are suppressed;
-- mirror is kept `m_isSilent = true` and `m_audioPaused = true`;
-- mirror `startGame()` is synchronized to the real layer, but it never creates a second music timeline;
-- autonomous mirror `startGameDelayed()` / scheduler updates are suppressed, so the hidden layer advances exactly once per authoritative real gameplay tick;
-- real `m_gameState.m_levelTime` / `m_timePlayed` are used as timing authority;
-- death-animation ticks are not artificially frozen; the mirror continues through the same engine update path until the authoritative real reset arrives;
-- resets and practice checkpoint creation/removal are mirrored;
-- practice/test/ignore-damage runtime flags are synchronized;
-- the real `m_startPosObject` pointer is **never copied** to the mirror because it belongs to another object graph. The corresponding mirror `StartPosObject` is found by level position.
-
-That means StartPos song offset remains controlled by the real Geometry Dash audio path. The Layout mirror only follows the visual start state.
+The decorated real `PlayLayer` is the only owner of physics, player state, inputs, StartPos, practice checkpoints, attempts, triggers, camera, FMOD and timing. The local Layout pass only changes render-visible fields around a second visit of that same scene. It never calls gameplay update/reset/checkpoint/audio functions.
 
 ## GPU / performance rules
 
@@ -85,7 +75,7 @@ The sender path intentionally has no CPU frame extraction:
 
 Turning **Enable dual view** off also stops the mirror tick and local redraw for the current level.
 
-The unavoidable additional cost is the stripped Layout mirror render/simulation. The original decorated frame must still be rendered once because OBS needs it. A second output can therefore be optimized heavily, but it cannot honestly be guaranteed to cost literally zero frame time on every level or mod stack.
+The unavoidable additional cost is one extra local scene visit plus a scan of the classified object pointers. There is no second simulation. The original decorated frame must still be rendered once because OBS needs it, so the local Layout output cannot honestly cost literally zero frame time on every level or mod stack.
 
 For an RTX 3090 setup, put **GeometryDash.exe and OBS on the same RTX 3090** in Windows Graphics Settings / NVIDIA Control Panel; cross-adapter sharing is exactly what this design avoids.
 
@@ -129,7 +119,7 @@ Add an OBS **Spout2 Capture** source and select sender **Geometry Dash Full** (o
 
 The frame sent to Spout is intentionally captured from the already-rendered default framebuffer, so UI/HUD mods generally do not need explicit support.
 
-Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. The mod runs the complete pinned XDBot `getModifiedString` preprocessing once to build a render mask keyed to the real level objects. At presentation time the untouched decorated framebuffer is sent to Spout first; then only the visual state of the currently relevant real objects is temporarily changed to XDBot Layout semantics, the same scene is visited again for the local backbuffer, and every touched field is restored immediately. ShaderLayer's shader pass is bypassed only during this local second visit. This design removes duplicate gameplay sessions and prevents practice/reset/input hooks in other mods from ever seeing a second world.
+Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. At presentation time the untouched decorated framebuffer is sent to Spout first; then the complete classified object set and full XDBot special palette are temporarily applied, the same scene is visited again for the local backbuffer, and every touched visual field is restored immediately. ShaderLayer's shader pass is bypassed only during this local second visit.
 
 ## Credits / licensing
 

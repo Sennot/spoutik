@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.7
+- Replaced the failed `(objectID, m_startPosition)` layout mapping with an exact serialized-record plan bound during the authoritative `PlayLayer::addObject` path.
+- Removed decoration is now masked from the complete classified object list instead of relying on the two transient visible-object caches.
+- Added immediate white/black XDBot main/detail sprite coloring with same-frame restoration of the original decorated colors.
+- Applied all six special colors from pinned XDBot `newColors`: background, both ground channels, line, and both middleground channels.
+- Expanded runtime and official-binding regression gates for exact mapping, full palette coverage and visual-state restoration.
+
 ## v0.1.6
 - Fixed the Win64 Clang build: renamed a local `near` identifier that Windows headers expand as a legacy compatibility macro.
 - Added a regression test preventing macro-sensitive `near` identifiers from returning to the Layout object-matching path.

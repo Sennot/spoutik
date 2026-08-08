@@ -12,17 +12,17 @@ python tools/verify_bindings.py
 
 Checks the source shape itself, including:
 
-- `PlayLayer` / `GJBaseGameLayer` hook signatures used by this project;
+- `PlayLayer::init`, `PlayLayer::addObject` and cleanup hook signatures used by this project;
 - final `CCEGLView::swapBuffers` pre-hook with `Priority::Last`;
 - Spout send occurring before the local Layout redraw and before the real swap;
 - documented default-FBO `SendFbo(0, 0, 0, ...)`;
-- rejection of actual Spout CPU fallback without misclassifying `GetGLDX()==false`;
-- private `GJGameLevel` mirror cloning plus mirror `levelComplete()`, `commitJumps()`, `updateAttempts()` and `onQuit()` suppression;
-- `Priority::VeryLate` mirror entry isolation plus `Priority::Last` side-effect guards;
-- all hidden-layer scheduler selectors removed before release and after start/reset/checkpoint changes;
-- the master enable flag stopping both mirror ticking and local redraw;
-- StartPos mapping inside the mirror object graph rather than pointer cross-copy;
-- Spout ABI prefix ordering;
+- complete pinned-XDBot serialized-record alignment with no runtime-position key;
+- binding live objects during the authoritative `PlayLayer::addObject` path;
+- full-object-list decoration masking without visible-cache dependence;
+- immediate XDBot main/detail coloring and same-frame restoration;
+- all six pinned XDBot special palette channels (BG/G1/G2/LINE/MG1/MG2);
+- absence of a second PlayLayer, gameplay tick, reset, checkpoint, input or audio path;
+- application-local Spout GPU texture mode forcing while retaining the sender for CPU-mode diagnosis;
 - Geode 5.8.2 / GD 2.2081 / Win64 CI target and resource declarations.
 
 ### 2. XDBot transform audit
@@ -42,7 +42,7 @@ CI runs:
 python tools/verify_upstream_bindings.py
 ```
 
-This fetches the official `geode-sdk/bindings` files for GD 2.2081 and explicitly checks every important method/member used here, including `PlayLayer::startGame/startGameDelayed`, `commitJumps`, `updateAttempts`, checkpoint methods, `GJBaseGameLayer::update/handleButton`, `GJGameLevel::create/copyLevelInfo`, StartPos/practice/audio/timing fields, and `CCEGLView::swapBuffers`.
+This fetches the official `geode-sdk/bindings` files for GD 2.2081 and explicitly checks every method/member used by the current render path, including `PlayLayer::addObject`, GameObject main/detail color APIs, both ground layers, middleground sprites, ShaderLayer and `CCEGLView::swapBuffers`.
 
 ### 4. Authoritative compiler check
 
