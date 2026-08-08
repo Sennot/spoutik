@@ -60,3 +60,7 @@ The workflow opens the produced `.geode` and refuses the artifact unless the x64
 ## What this sandbox cannot claim
 
 The local environment used to prepare this source does not provide a running Windows Geometry Dash + OBS + Spout stack, so runtime GPU interop, third-party mod ordering and actual level-by-level visual synchronization cannot be proven here. Those require launching the produced Win64 `.geode` in Geometry Dash. The source and public declarations can be checked here; the included GitHub Actions workflow performs the real Windows compile/package verification.
+
+## Geode version metadata
+
+`mod.json` uses `"geode": "5.8.2"` (without the Git tag prefix `v`); GitHub Actions still uses `sdk: v5.8.2`.

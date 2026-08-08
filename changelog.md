@@ -1,3 +1,8 @@
+# v0.1.3
+- Fixed Geode metadata compatibility: `mod.json` now uses `"geode": "5.8.2"` (no leading `v`).
+- Kept `sdk: v5.8.2` in GitHub Actions, because the action input is a Git tag while `mod.json` is an SDK semantic version.
+- Added a regression test that mirrors Geode v5.8.2's major/minor version comparison and catches this exact mismatch.
+
 # v0.1.2
 - Fixed CMake configure failure with Geode 5.8.2: `setup_geode_mod()` uses the plain `target_link_libraries` signature, so the explicit Win32 `opengl32` link now uses the same signature.
 - Added an offline invariant that rejects keyword-form `target_link_libraries(... PRIVATE/PUBLIC/INTERFACE ...)` on the mod target.

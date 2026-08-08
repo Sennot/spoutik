@@ -43,3 +43,7 @@ cmake --build build --config Release --parallel
 5. Если изображение перевёрнуто, переключи **Invert Spout texture** в настройках мода.
 
 OBS получает обычный уже отрисованный framebuffer игры до локальной подмены на Layout: декор, camera/shader effects, HUD, CPS/progress, pause/menu/editor и mod overlays, которые реально попали в game framebuffer.
+
+## Geode version metadata
+
+`mod.json` uses `"geode": "5.8.2"` (without the Git tag prefix `v`); GitHub Actions still uses `sdk: v5.8.2`.

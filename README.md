@@ -140,3 +140,7 @@ The inspected XDBotFork root at the pinned revision does not expose a license fi
 ## Validation boundary
 
 This sandbox can verify the project structure, transform logic and the current public binding declarations, but it does not run Geometry Dash/OBS and does not contain a Windows + installed Geode runtime capable of launching the mod here. The authoritative binary check is therefore the included Windows GitHub Actions build. See `VALIDATION.md`.
+
+## Geode version metadata
+
+`mod.json` uses `"geode": "5.8.2"` (without the Git tag prefix `v`); GitHub Actions still uses `sdk: v5.8.2`.

@@ -64,8 +64,10 @@ if re.search(r"stepFromReal\(PlayLayer\* real, float dt\)[\s\S]*real->m_playerDi
     failed.append("mirror should not freeze death-animation ticks before authoritative reset")
 if mod.get("gd", {}).get("win") != "2.2081":
     failed.append("mod target GD 2.2081")
-if mod.get("geode") != "v5.8.2":
-    failed.append("mod target Geode v5.8.2")
+if mod.get("geode") != "5.8.2":
+    failed.append("mod.json Geode SDK target must be 5.8.2 without a leading v")
+if str(mod.get("geode", "")).startswith("v"):
+    failed.append("mod.json geode field must not use the Git tag prefix v")
 if len(mod.get("description", "")) > 45:
     failed.append("mod.json description must be <=45 characters")
 resources = mod.get("resources", {}).get("files", [])
