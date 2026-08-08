@@ -45,7 +45,7 @@ This fetches the official `geode-sdk/bindings` files for GD 2.2081 and explicitl
 
 ### 4. Authoritative compiler check
 
-GitHub Actions then builds with **MSVC / Windows x64 / Geode v5.8.2** through `geode-sdk/build-geode-mod@main` in Release mode with LTO. This is the actual generated-binding and C++ ABI compile test.
+GitHub Actions then builds with **Clang/Ninja / Windows x64 / Geode v5.8.2** through `geode-sdk/build-geode-mod@main` in Release mode with LTO. This is the actual generated-binding and C++ ABI compile test.
 
 ### 5. Final `.geode` package check
 

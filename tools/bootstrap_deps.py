@@ -44,21 +44,53 @@ def transform_xdbot(raw_hpp: str, raw_cpp: str) -> tuple[str, str, str]:
     adapted_cpp = '#include "layout_mode.hpp"\n\n' + pristine_logic
 
     # Fail instead of silently integrating a partial or materially changed source.
+    # Do NOT use arbitrary byte-size thresholds here. The pinned upstream cpp is
+    # intentionally compact, and the preserved implementation suffix is smaller
+    # than an earlier 4.5 KiB guard even though it is complete. Validate semantic
+    # structure instead.
     required_hpp = [
-        "excludedTriggerIDs", "importantTriggerIDs", "decoObjectIDs",
-        "solidObjectIDs", "newColors",
+        "const std::string newColors",
+        "const std::unordered_set<int> robtopLevelIDs",
+        "const std::unordered_set<int> excludedTriggerIDs",
+        "const std::map<int, std::vector<int>> importantTriggerIDs",
+        "const std::unordered_set<int> decoObjectIDs",
+        "const std::unordered_set<int> solidObjectIDs",
     ]
-    required_cpp = ["LayoutMode::getModifiedString", "LayoutMode::mergeVector", "importantGroups"]
+    required_cpp = [
+        "std::string LayoutMode::getModifiedString",
+        "ZipUtils::decompressString",
+        "Utils::splitByChar(decompString, ';')",
+        "levelSettings[1] = newColors",
+        "importantTriggerIDs.contains",
+        "decoObjectIDs.contains",
+        "props.contains(121)",
+        "props.contains(57)",
+        "solidObjectIDs.contains",
+        "props.contains(129)",
+        "props.contains(135)",
+        'return firstPart + newString + ";"',
+        "std::string LayoutMode::mergeVector",
+    ]
     for token in required_hpp:
         if token not in adapted_hpp:
-            raise RuntimeError(f"XDBot header missing required token: {token}")
+            raise RuntimeError(f"XDBot header missing required structure: {token}")
     for token in required_cpp:
         if token not in adapted_cpp:
-            raise RuntimeError(f"XDBot cpp missing required token: {token}")
-    if len(adapted_hpp.encode()) < 18_000:
-        raise RuntimeError("XDBot layout_mode.hpp unexpectedly small; refusing partial integration")
-    if len(adapted_cpp.encode()) < 4_500:
-        raise RuntimeError("XDBot layout_mode.cpp unexpectedly small; refusing partial integration")
+            raise RuntimeError(f"XDBot cpp missing required structure: {token}")
+
+    # These declarations are single complete definitions in the pinned header.
+    # Requiring their terminators catches truncated downloads without guessing a
+    # minimum source size.
+    for name in ("robtopLevelIDs", "excludedTriggerIDs", "importantTriggerIDs", "decoObjectIDs", "solidObjectIDs"):
+        declaration = re.search(rf"\b{name}\b\s*=.*?;", adapted_hpp, re.S)
+        if declaration is None:
+            raise RuntimeError(f"XDBot header definition appears truncated: {name}")
+
+    # The preserved implementation must contain both functions and finish at the
+    # closing brace of mergeVector. This catches a partial cpp response while
+    # allowing the exact compact upstream implementation.
+    if not re.search(r"return\s+result\s*;\s*}\s*$", pristine_logic, re.S):
+        raise RuntimeError("XDBot layout_mode.cpp appears truncated after mergeVector")
 
     # This equality is the important guarantee: no statement inside the actual
     # XDBot LayoutMode implementation is rewritten, filtered or regenerated.
@@ -110,6 +142,11 @@ def sync_xdbot() -> None:
     raw_cpp = cpp_bytes.decode("utf-8")
     validate_xdbot_addobject(raw_cpp)
     adapted_hpp, adapted_cpp, pristine_logic = transform_xdbot(raw_hpp, raw_cpp)
+    print(
+        "XDBot Layout Mode fetched OK: "
+        f"hpp={len(hpp_bytes)} bytes, cpp={len(cpp_bytes)} bytes, "
+        f"preserved implementation={len(pristine_logic.encode('utf-8'))} bytes"
+    )
 
     # Keep the exact downloaded upstream files in the source artifact for audit.
     (pristine / "layout_mode.hpp").write_bytes(hpp_bytes)

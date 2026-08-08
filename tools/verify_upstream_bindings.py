@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify the exact official Geode binding declarations used by this mod.
 
-Runs in GitHub Actions where network access is available. The subsequent MSVC
+Runs in GitHub Actions where network access is available. The subsequent Windows Clang/Ninja
 build remains authoritative; this produces a much clearer failure if bindings
 change before compilation starts.
 """

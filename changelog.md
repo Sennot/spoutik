@@ -1,3 +1,9 @@
+# v0.1.1
+- Fixed GitHub Actions bootstrap false-positive on the pinned XDBot `layout_mode.cpp`: removed brittle minimum-byte-size checks.
+- XDBot completeness is now validated structurally (all required ID tables, preprocessing path, and complete `mergeVector` tail).
+- Added regression coverage proving compact complete XDBot logic is accepted while a truncated cpp is rejected.
+- Documentation corrected: the official `geode-sdk/build-geode-mod` Windows action currently configures Clang/Clang++ with Ninja, not MSVC.
+
 # v0.1.0
 - Full-game Spout2 sender at the final `CCEGLView::swapBuffers` pre-presentation boundary.
 - XDBot Layout Mode mirror generated before its own `PlayLayer::init` from the complete pinned Layout Mode logic/tables.
@@ -8,4 +14,4 @@
 - Practice checkpoints, input and runtime mode flags mirrored.
 - Spout CPU-sharing fallback rejected; GL/DX GPU path required.
 - `SpoutLibrary.dll` bundled as a Geode resource and verified inside the final `.geode` by CI.
-- GitHub Actions validates current official GD 2.2081 bindings before the MSVC Win64 build.
+- GitHub Actions validates current official GD 2.2081 bindings before the Windows x64 Clang/Ninja build.

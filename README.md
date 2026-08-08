@@ -114,7 +114,7 @@ See `SOURCE-MANIFEST.md` for exactly which files are first-party source and whic
 3. offline project invariant checks;
 4. live declaration checks against official Geode `bindings/main/bindings/2.2081`;
 5. x64 Spout DLL validation;
-6. MSVC Win64 build with `geode-sdk/build-geode-mod@main`, Geode `v5.8.2`, Release + LTO;
+6. Windows x64 Clang/Ninja build with `geode-sdk/build-geode-mod@main`, Geode `v5.8.2`, Release + LTO;
 7. final `.geode` package inspection;
 8. artifact upload as `SpoutLayoutDualView-Win64`.
 
@@ -139,4 +139,4 @@ The inspected XDBotFork root at the pinned revision does not expose a license fi
 
 ## Validation boundary
 
-This sandbox can verify the project structure, transform logic and the current public binding declarations, but it does not run Geometry Dash/OBS and does not contain a Windows MSVC + installed Geode runtime capable of launching the mod here. The authoritative binary check is therefore the included Windows GitHub Actions build. See `VALIDATION.md`.
+This sandbox can verify the project structure, transform logic and the current public binding declarations, but it does not run Geometry Dash/OBS and does not contain a Windows + installed Geode runtime capable of launching the mod here. The authoritative binary check is therefore the included Windows GitHub Actions build. See `VALIDATION.md`.

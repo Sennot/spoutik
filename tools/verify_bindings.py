@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline project-invariant checks.
 
-This does NOT pretend to replace generated Geode bindings or MSVC. CI also runs
+This does NOT pretend to replace generated Geode bindings or a real Windows compile. CI also runs
 verify_upstream_bindings.py and then performs the authoritative Win64 compile.
 """
 from __future__ import annotations

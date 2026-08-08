@@ -18,11 +18,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Test bootstrap and audited XDBot transform
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
       - name: Fetch pinned XDBot Layout Mode and Spout2 binary
         run: python tools/bootstrap_deps.py
-
-      - name: Test audited XDBot transform
-        run: python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Verify local source invariants
         run: python tools/verify_bindings.py
