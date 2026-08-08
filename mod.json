@@ -5,7 +5,7 @@
   },
   "id": "spoutlayout.dualview",
   "name": "Spout Layout Dual View",
-  "version": "v0.2.0",
+  "version": "v0.2.1",
   "developer": "YourName",
   "description": "Layout locally, full GD frame over Spout2.",
   "resources": {

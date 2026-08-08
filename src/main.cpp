@@ -60,14 +60,21 @@ class $modify(SpoutLayoutShaderLayer, ShaderLayer) {
     }
 
     void visit() {
+        static thread_local bool drawingRawLayer = false;
         if (LayoutMirror::get().isRenderingLayout()) {
-            // ShaderLayer's own children contain the render-texture output of
-            // the decorated pass. Visiting CCLayer here redraws that cached
-            // texture over Layout. Draw the actual in-shader object parent
-            // directly instead: it preserves the z-range while applying no
-            // screen shader to the local view.
-            if (m_gameLayer && m_gameLayer->m_inShaderParent) {
-                m_gameLayer->m_inShaderParent->visit();
+            if (drawingRawLayer) return;
+            // m_inShaderParent owns ShaderLayer's cached output. Re-visiting it
+            // can recurse into or redraw the black/decorated render texture.
+            // Draw GD's raw in-shader object layer instead; below/above shader
+            // ranges are already visited normally by the authoritative scene.
+            if (m_gameLayer && m_gameLayer->m_inShaderObjectLayer) {
+                auto* rawLayer = m_gameLayer->m_inShaderObjectLayer;
+                auto const wasVisible = rawLayer->isVisible();
+                if (!wasVisible) rawLayer->cocos2d::CCNode::setVisible(true);
+                drawingRawLayer = true;
+                rawLayer->visit();
+                drawingRawLayer = false;
+                if (!wasVisible) rawLayer->cocos2d::CCNode::setVisible(false);
             }
             return;
         }
@@ -77,16 +84,17 @@ class $modify(SpoutLayoutShaderLayer, ShaderLayer) {
 
 class $modify(SpoutLayoutGameObject, GameObject) {
     static void onModify(auto& self) {
-        // Stay outside every visibility hook so the active render set observes
-        // the final value even when another mod short-circuits the inner chain.
-        if (!self.setHookPriorityPre("GameObject::setVisible", Priority::First)) {
-            log::warn("Could not set GameObject::setVisible tracking priority to First");
+        // Visibility is deliberately not hooked: GD batch/camera culling can
+        // bypass that virtual function, and several gameplay mods also own it.
+        // Opacity updates are semantic trigger state and remain mirrored.
+        if (!self.setHookPriorityPre("GameObject::setOpacity", Priority::First)) {
+            log::warn("Could not set GameObject::setOpacity tracking priority to First");
         }
     }
 
-    void setVisible(bool visible) {
-        GameObject::setVisible(visible);
-        LayoutMirror::get().observeVisibility(this, visible);
+    void setOpacity(unsigned char opacity) {
+        GameObject::setOpacity(opacity);
+        LayoutMirror::get().observeOpacity(this, opacity);
     }
 };
 

@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <string_view>
-#include <unordered_set>
 
 #ifdef GEODE_IS_WINDOWS
 #include <GL/gl.h>
@@ -148,12 +147,12 @@ void LayoutMirror::clear() {
     m_modifiedString.clear();
     m_entries.clear();
     m_entryIndex.clear();
-    m_visibleEntries.clear();
     m_renderNodes.clear();
     m_pendingByObjectID.clear();
     m_layoutPalette.clear();
     m_savedStates.clear();
     m_savedSceneSprites.clear();
+    m_frameSerial = 0;
     m_originalRecordCount = 0;
     m_transformedRecordCount = 0;
     m_classifiedKeepCount = 0;
@@ -164,7 +163,9 @@ void LayoutMirror::clear() {
     m_frameMappedNodeCount = 0;
     m_frameStyledNodeCount = 0;
     m_frameSuppressedNodeCount = 0;
-    m_frameActiveObjectCount = 0;
+    m_frameCandidateObjectCount = 0;
+    m_frameRetainedCandidateCount = 0;
+    m_frameForcedVisibleCount = 0;
     m_frameBatchedMutationCount = 0;
     m_reportedRenderCoverage = false;
     m_renderMapReady = false;
@@ -201,7 +202,6 @@ void LayoutMirror::buildLayoutPlan(GJGameLevel* level) {
     m_transformedRecordCount = transformedRecords.size();
     m_entries.reserve(originalRecords.size());
     m_entryIndex.reserve(originalRecords.size());
-    m_visibleEntries.reserve(std::min<std::size_t>(originalRecords.size(), 8192));
 
     // Consume the upstream palette itself instead of copying its RGB values.
     // Channel IDs are the six GD special channels emitted by XDBot newColors.
@@ -267,18 +267,21 @@ void LayoutMirror::observeObject(PlayLayer* real, GameObject* object) {
     if (excludedTriggerIDs.contains(object->m_objectID)) keep = false;
 
     auto const index = m_entries.size();
-    m_entries.push_back({ object, keep, forceHidden });
+    // Mirror the exact upstream addObject baseline without mutating the real
+    // decorated object. XDBot makes every retained object visible/opaque once;
+    // later opacity calls update the logical alpha, while live disable flags
+    // are read at render time independently from unreliable camera culling.
+    auto const layoutOpacity = static_cast<unsigned char>(forceHidden ? 0 : 255);
+    m_entries.push_back({ object, keep, forceHidden, layoutOpacity, 0 });
     m_entryIndex.insert_or_assign(object, index);
-    if (object->isVisible()) m_visibleEntries.insert(index);
     if (m_renderMapReady) registerRenderNodes(m_entries.back());
 }
 
-void LayoutMirror::observeVisibility(GameObject* object, bool visible) {
+void LayoutMirror::observeOpacity(GameObject* object, unsigned char opacity) {
     if (!object || m_renderingLayout) return;
     auto found = m_entryIndex.find(object);
     if (found == m_entryIndex.end()) return;
-    if (visible) m_visibleEntries.insert(found->second);
-    else m_visibleEntries.erase(found->second);
+    m_entries[found->second].layoutOpacity = opacity;
 }
 
 void LayoutMirror::finishFor(PlayLayer* real) {
@@ -313,9 +316,9 @@ void LayoutMirror::finishFor(PlayLayer* real) {
         );
     }
 
-    // Build one direct CCNode lookup after object construction. GameObject's
-    // detail/glow/particle sprites may be reparented, so indexing those nodes
-    // is what makes the mask match the actual Cocos render traversal.
+    // Build one direct CCNode lookup after object construction. Main/detail/
+    // glow sprites may be reparented, so index the actual render nodes. Pooled
+    // particles are deliberately handled only from their current camera owner.
     m_renderNodes.clear();
     m_renderNodes.reserve(m_entries.size() * 3);
     for (auto const& entry : m_entries) registerRenderNodes(entry);
@@ -331,14 +334,25 @@ void LayoutMirror::registerRenderNodes(LayoutEntry const& entry) {
     if (!object) return;
 
     auto registerNode = [&](cocos2d::CCNode* node, RenderNodeKind kind) {
-        if (node) m_renderNodes.insert_or_assign(node, RenderNodeEntry { object, kind });
+        if (!node) return;
+        auto rank = [](RenderNodeKind value) {
+            switch (value) {
+                case RenderNodeKind::Main: return 3;
+                case RenderNodeKind::Detail: return 2;
+                case RenderNodeKind::Suppress: return 1;
+            }
+            return 0;
+        };
+        auto found = m_renderNodes.find(node);
+        if (found == m_renderNodes.end() || rank(kind) > rank(found->second.kind)) {
+            m_renderNodes.insert_or_assign(node, RenderNodeEntry { object, kind });
+        }
     };
 
     if (!entry.keep || entry.forceHidden) {
         registerNode(object, RenderNodeKind::Suppress);
         registerNode(object->m_colorSprite, RenderNodeKind::Suppress);
         registerNode(object->m_glowSprite, RenderNodeKind::Suppress);
-        registerNode(object->m_particle, RenderNodeKind::Suppress);
         return;
     }
 
@@ -359,7 +373,11 @@ LayoutMirror::NodeVisitAction LayoutMirror::beginNodeVisit(cocos2d::CCNode* node
     if (collectCoverage) ++m_frameMappedNodeCount;
 
     auto const& renderNode = found->second;
-    if (renderNode.kind == RenderNodeKind::Suppress || !node->isVisible()) {
+    auto const ownerDisabled = renderNode.owner && (
+        renderNode.owner->m_isGroupDisabled || renderNode.owner->m_isGroupDisabledTemp ||
+        renderNode.owner->m_isDisabled || renderNode.owner->m_isDisabled2
+    );
+    if (renderNode.kind == RenderNodeKind::Suppress || ownerDisabled || !node->isVisible()) {
         if (collectCoverage) ++m_frameSuppressedNodeCount;
         return NodeVisitAction::Skip;
     }
@@ -373,7 +391,12 @@ LayoutMirror::NodeVisitAction LayoutMirror::beginNodeVisit(cocos2d::CCNode* node
         return NodeVisitAction::PassThrough;
     }
 
-    m_savedStates.push_back({ node, sprite, nullptr, current, true, false, false });
+    SavedVisualState state;
+    state.node = node;
+    state.sprite = sprite;
+    state.color = current;
+    state.restoreColor = true;
+    m_savedStates.push_back(state);
     sprite->setColor(target);
     if (collectCoverage) ++m_frameStyledNodeCount;
     return NodeVisitAction::Styled;
@@ -387,53 +410,151 @@ void LayoutMirror::endNodeVisit(cocos2d::CCNode* node) {
     m_savedStates.pop_back();
 }
 
-void LayoutMirror::applyBatchedOverrides() {
-    auto const collectCoverage = !m_reportedRenderCoverage;
-    if (collectCoverage) m_frameActiveObjectCount = m_visibleEntries.size();
+void LayoutMirror::touchCameraEntry(LayoutEntry& entry) {
+    if (!entry.object || entry.touchedSerial == m_frameSerial) return;
+    entry.touchedSerial = m_frameSerial;
+    ++m_frameCandidateObjectCount;
+    if (entry.keep && !entry.forceHidden) ++m_frameRetainedCandidateCount;
+
+    auto* object = entry.object;
+    auto const gameplayDisabled =
+        object->m_isGroupDisabled || object->m_isGroupDisabledTemp ||
+        object->m_isDisabled || object->m_isDisabled2;
+    auto const shouldShow = entry.keep && !entry.forceHidden && !gameplayDisabled;
+
+    auto setSpriteVisible = [&](cocos2d::CCSprite* sprite, bool visible, bool mainSprite) {
+        if (!sprite || sprite->isVisible() == visible) return;
+        SavedVisualState state;
+        state.node = sprite;
+        state.sprite = sprite;
+        state.restoreVisible = true;
+        state.visible = sprite->isVisible();
+        m_savedStates.push_back(state);
+        sprite->cocos2d::CCSprite::setVisible(visible);
+        if (visible && mainSprite) ++m_frameForcedVisibleCount;
+        if (sprite->getBatchNode()) ++m_frameBatchedMutationCount;
+    };
+
+    auto setSpriteOpacity = [&](cocos2d::CCSprite* sprite, unsigned char opacity) {
+        if (!sprite || sprite->getOpacity() == opacity) return;
+        SavedVisualState state;
+        state.node = sprite;
+        state.sprite = sprite;
+        state.opacity = sprite->getOpacity();
+        state.restoreOpacity = true;
+        m_savedStates.push_back(state);
+        sprite->cocos2d::CCSprite::setOpacity(opacity);
+        if (sprite->getBatchNode()) ++m_frameBatchedMutationCount;
+    };
 
     auto styleSprite = [&](cocos2d::CCSprite* sprite, cocos2d::ccColor3B target) {
         if (!sprite || !sprite->getBatchNode() || !sprite->isVisible()) return;
         auto const current = sprite->getColor();
         if (current.r == target.r && current.g == target.g && current.b == target.b) return;
-        m_savedStates.push_back({ sprite, sprite, nullptr, current, true, false, false });
+        SavedVisualState state;
+        state.node = sprite;
+        state.sprite = sprite;
+        state.color = current;
+        state.restoreColor = true;
+        m_savedStates.push_back(state);
         sprite->setColor(target);
-        if (collectCoverage) ++m_frameBatchedMutationCount;
+        ++m_frameBatchedMutationCount;
     };
 
-    auto suppressSprite = [&](cocos2d::CCSprite* sprite) {
-        if (!sprite || !sprite->getBatchNode() || !sprite->isVisible()) return;
-        m_savedStates.push_back({ sprite, sprite, nullptr, {}, false, true, true });
-        sprite->cocos2d::CCSprite::setVisible(false);
-        if (collectCoverage) ++m_frameBatchedMutationCount;
+    auto suppressBatchedSprite = [&](cocos2d::CCSprite* sprite) {
+        if (sprite && sprite->getBatchNode()) setSpriteVisible(sprite, false, false);
     };
 
-    auto suppressParticle = [&](cocos2d::CCParticleSystemQuad* particle) {
+    auto suppressBatchedParticle = [&](cocos2d::CCParticleSystemQuad* particle) {
         if (!particle || !particle->getBatchNode() || !particle->isVisible()) return;
-        m_savedStates.push_back({ particle, nullptr, particle, {}, false, true, true });
+        SavedVisualState state;
+        state.node = particle;
+        state.particle = particle;
+        state.restoreVisible = true;
+        state.visible = true;
+        m_savedStates.push_back(state);
         particle->cocos2d::CCParticleSystem::setVisible(false);
-        if (collectCoverage) ++m_frameBatchedMutationCount;
+        ++m_frameBatchedMutationCount;
     };
 
-    for (auto index : m_visibleEntries) {
-        if (index >= m_entries.size()) continue;
-        auto const& entry = m_entries[index];
-        auto* object = entry.object;
-        if (!object) continue;
-        if (!entry.keep || entry.forceHidden) {
-            suppressSprite(object);
-            suppressSprite(object->m_colorSprite);
-            suppressSprite(object->m_glowSprite);
-            suppressParticle(object->m_particle);
-            continue;
-        }
-
-        styleSprite(object, object->m_isObjectBlack ? kLayoutBlack : kLayoutWhite);
-        styleSprite(
-            object->m_colorSprite,
-            object->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite
-        );
-        suppressSprite(object->m_glowSprite);
+    if (!shouldShow) {
+        suppressBatchedSprite(object);
+        suppressBatchedSprite(object->m_colorSprite);
+        suppressBatchedSprite(object->m_glowSprite);
+        suppressBatchedParticle(object->m_particle);
+        return;
     }
+
+    // This is the scoped equivalent of XDBot's post-add setVisible(true) and
+    // setOpacity(255). It revives hidden/invisible retained structures only in
+    // the camera candidate set, then restores the decorated world this frame.
+    setSpriteVisible(object, true, true);
+    if (object->m_hasColorSprite) setSpriteVisible(object->m_colorSprite, true, false);
+    setSpriteOpacity(object, entry.layoutOpacity);
+
+    styleSprite(object, object->m_isObjectBlack ? kLayoutBlack : kLayoutWhite);
+    styleSprite(
+        object->m_colorSprite,
+        object->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite
+    );
+    suppressBatchedSprite(object->m_glowSprite);
+}
+
+void LayoutMirror::applyCameraOverrides(PlayLayer* real) {
+    if (!real || real != m_real) return;
+    ++m_frameSerial;
+    if (m_frameSerial == 0) ++m_frameSerial;
+
+    auto touchObject = [&](GameObject* object) {
+        if (!object) return;
+        auto found = m_entryIndex.find(object);
+        if (found == m_entryIndex.end()) return;
+        touchCameraEntry(m_entries[found->second]);
+    };
+
+    auto touchVector = [&](auto const& objects, int activeCount) {
+        auto limit = objects.size();
+        if (activeCount >= 0) {
+            limit = std::min(limit, static_cast<std::size_t>(activeCount));
+        }
+        for (std::size_t i = 0; i < limit; ++i) touchObject(objects[i]);
+    };
+
+    // GD already calculates these compact vectors for the current frame.
+    // Together they cover moving/effect objects without a full-level scan.
+    touchVector(real->m_calcNonEffectObjects, real->m_calcNonEffectObjectsSize);
+    touchVector(real->m_visibleObjects, real->m_visibleObjectsCount);
+    touchVector(real->m_visibleObjects2, real->m_visibleObjects2Count);
+
+    auto touchSectionGrid = [&](auto const& grid) {
+        if (grid.empty()) return;
+        auto const left = std::max(0, real->m_leftSectionIndex - 1);
+        auto const right = std::min(static_cast<int>(grid.size()) - 1, real->m_rightSectionIndex + 1);
+        if (left > right) return;
+
+        for (auto sectionX = left; sectionX <= right; ++sectionX) {
+            auto* column = grid[static_cast<std::size_t>(sectionX)];
+            if (!column || column->empty()) continue;
+            auto const bottom = std::max(0, real->m_bottomSectionIndex - 1);
+            auto const top = std::min(static_cast<int>(column->size()) - 1, real->m_topSectionIndex + 1);
+            if (bottom > top) continue;
+
+            for (auto sectionY = bottom; sectionY <= top; ++sectionY) {
+                auto* objects = (*column)[static_cast<std::size_t>(sectionY)];
+                if (!objects) continue;
+                for (auto* object : *objects) touchObject(object);
+            }
+        }
+    };
+
+    // Ordinary retained structures live here even when the decorated world
+    // marks them invisible. This single grid is the normal completeness path.
+    touchSectionGrid(real->m_nonEffectObjects);
+
+    // Fully invisible/atypical levels may classify their structures in the
+    // general grid only. Pay for that second grid only when GD's compact sets
+    // and non-effect grid produced suspiciously few candidates.
+    if (m_frameRetainedCandidateCount < 64) touchSectionGrid(real->m_sections);
 }
 
 void LayoutMirror::saveAndColorSceneSprite(CCSprite* sprite, ccColor3B color) {
@@ -486,11 +607,13 @@ void LayoutMirror::beginLayoutPass(PlayLayer* real) {
     m_frameMappedNodeCount = 0;
     m_frameStyledNodeCount = 0;
     m_frameSuppressedNodeCount = 0;
-    m_frameActiveObjectCount = 0;
+    m_frameCandidateObjectCount = 0;
+    m_frameRetainedCandidateCount = 0;
+    m_frameForcedVisibleCount = 0;
     m_frameBatchedMutationCount = 0;
     m_renderingLayout = true;
     applyScenePalette(real);
-    applyBatchedOverrides();
+    applyCameraOverrides(real);
 }
 
 void LayoutMirror::endLayoutPass() {
@@ -498,8 +621,10 @@ void LayoutMirror::endLayoutPass() {
     m_renderingLayout = false;
     if (!m_reportedRenderCoverage) {
         log::info(
-            "Layout hybrid mask active: {} active objects, {} batched mutations; {} scene nodes, {} mapped, {} styled, {} skipped; {} live objects",
-            m_frameActiveObjectCount,
+            "Layout adaptive mask active: {} camera candidates ({} retained), {} forced visible, {} batched mutations; {} scene nodes, {} mapped, {} styled, {} skipped; {} live objects",
+            m_frameCandidateObjectCount,
+            m_frameRetainedCandidateCount,
+            m_frameForcedVisibleCount,
             m_frameBatchedMutationCount,
             m_frameNodeProbeCount,
             m_frameMappedNodeCount,
@@ -514,6 +639,9 @@ void LayoutMirror::endLayoutPass() {
 void LayoutMirror::restoreLayoutOverrides() {
     for (auto it = m_savedStates.rbegin(); it != m_savedStates.rend(); ++it) {
         if (it->restoreColor && it->sprite) it->sprite->setColor(it->color);
+        if (it->restoreOpacity && it->sprite) {
+            it->sprite->cocos2d::CCSprite::setOpacity(it->opacity);
+        }
         if (it->restoreVisible && it->sprite) {
             it->sprite->cocos2d::CCSprite::setVisible(it->visible);
         }

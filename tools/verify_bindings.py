@@ -17,7 +17,7 @@ checks = {
     "PlayLayer::init": r"bool init\(GJGameLevel\* level, bool useReplay, bool dontCreateObjects\)",
     "PlayLayer::addObject": r"void addObject\(GameObject\* object\)",
     "PlayLayer::onQuit": r"void onQuit\(\)",
-    "ShaderLayer::visit": r"void visit\(\)[\s\S]*isRenderingLayout\(\)[\s\S]*m_inShaderParent->visit\(\)",
+    "ShaderLayer::visit": r"void visit\(\)[\s\S]*isRenderingLayout\(\)[\s\S]*m_inShaderObjectLayer[\s\S]*rawLayer->visit\(\)",
     "CCEGLView::swapBuffers": r"void swapBuffers\(\)",
     "capture before local redraw": r"sendDefaultFramebuffer\(\);[\s\S]*renderPlayerView\(director, real\);[\s\S]*CCEGLView::swapBuffers\(\)",
     "XDBot full transform used": r"LayoutMode::getModifiedString\(std::string\(level->m_levelString\)\)",
@@ -25,7 +25,9 @@ checks = {
     "authoritative object binding": r"PlayLayer::addObject\(object\);\s*LayoutMirror::get\(\)\.observeObject\(this, object\);",
     "actual render-node index": r"registerRenderNodes[\s\S]*m_renderNodes\.find\(node\)",
     "CCNode visit mask": r"beginNodeVisit\(this\)[\s\S]*NodeVisitAction::Skip\) return;[\s\S]*CCNode::visit\(\)[\s\S]*endNodeVisit\(this\)",
-    "batched active-object mask": r"observeVisibility\(this, visible\)[\s\S]*applyBatchedOverrides[\s\S]*m_visibleEntries[\s\S]*getBatchNode\(\)",
+    "adaptive camera mask": r"applyCameraOverrides[\s\S]*m_nonEffectObjects[\s\S]*m_frameRetainedCandidateCount",
+    "batched camera mutations": r"touchCameraEntry[\s\S]*getBatchNode\(\)",
+    "separate layout opacity": r"observeOpacity\(this, opacity\)[\s\S]*setSpriteOpacity\(object, entry\.layoutOpacity\)",
     "XDBot actual object colors": r"m_isObjectBlack \? kLayoutBlack[\s\S]*m_isColorSpriteBlack \? kLayoutBlack[\s\S]*sprite->setColor\(target\)",
     "HackMega relative capture order": r"setHookPriorityAfterPre\([\s\S]*cocos2d::CCEGLView::swapBuffers[\s\S]*absolllute\.hackmega",
     "XDBot full special palette": r"kBackgroundChannel[\s\S]*kGround1Channel[\s\S]*kGround2Channel[\s\S]*kLineChannel[\s\S]*kMG1Channel[\s\S]*kMG2Channel[\s\S]*splitView\(newColors, '\|'\)",
@@ -59,7 +61,7 @@ for forbidden_hook in [
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
-if mod.get("version") != "v0.2.0": failed.append("mod version v0.2.0")
+if mod.get("version") != "v0.2.1": failed.append("mod version v0.2.1")
 
 resources = mod.get("resources", {}).get("files", [])
 for required in [

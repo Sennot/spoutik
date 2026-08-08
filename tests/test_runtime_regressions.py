@@ -102,13 +102,16 @@ class RuntimeRegressionTests(unittest.TestCase):
         )
         self.assertIsNotNone(register)
         block = register.group(1)
-        for token in ("object", "object->m_colorSprite", "object->m_glowSprite", "object->m_particle"):
+        for token in ("object", "object->m_colorSprite", "object->m_glowSprite"):
             self.assertIn(token, block)
+        # Claimed particle systems are pooled and may change owners at runtime;
+        # a permanent pointer decision would hide an unrelated later object.
+        self.assertNotIn("object->m_particle", block)
         self.assertIn("RenderNodeKind::Main", block)
         self.assertIn("RenderNodeKind::Detail", block)
         self.assertIn("RenderNodeKind::Suppress", block)
 
-    def test_hot_path_masks_the_actual_ccnode_visit_without_camera_scan(self):
+    def test_hot_path_masks_actual_ccnode_visit_without_full_level_scan(self):
         self.assertIn('#include <Geode/modify/CCNode.hpp>', self.main)
         self.assertIn('"cocos2d::CCNode::visit"', self.main)
         self.assertRegex(
@@ -121,25 +124,52 @@ class RuntimeRegressionTests(unittest.TestCase):
         )
         self.assertIsNotNone(begin)
         self.assertIn("m_renderNodes.find(node)", begin.group(1))
-        self.assertIn("Layout hybrid mask active", self.layout)
-        for old_path in ("m_sections", "m_nonEffectObjects", "m_visibleObjects", "m_visibleObjects2"):
-            self.assertNotIn(old_path, self.layout)
+        self.assertIn("Layout adaptive mask active", self.layout)
+        camera = re.search(
+            r"void LayoutMirror::applyCameraOverrides\(PlayLayer\* real\) \{([\s\S]*?)\n\}",
+            self.layout,
+        ).group(1)
+        self.assertNotRegex(camera, r"for \(auto const& entry : m_entries\)")
 
-    def test_batched_objects_use_a_visibility_tracked_active_set(self):
+    def test_batched_objects_use_adaptive_camera_candidates(self):
         self.assertIn('#include <Geode/modify/GameObject.hpp>', self.main)
-        self.assertIn('"GameObject::setVisible"', self.main)
-        self.assertRegex(
-            self.main,
-            r"GameObject::setVisible\(visible\);\s*LayoutMirror::get\(\)\.observeVisibility\(this, visible\);",
-        )
+        self.assertNotIn('"GameObject::setVisible"', self.main)
+        self.assertNotIn("observeVisibility", self.main + self.layout + self.header)
         batch = re.search(
-            r"void LayoutMirror::applyBatchedOverrides\(\) \{([\s\S]*?)\n\}",
+            r"void LayoutMirror::touchCameraEntry\(LayoutEntry& entry\) \{([\s\S]*?)\n\}",
             self.layout,
         )
         self.assertIsNotNone(batch)
-        self.assertIn("m_visibleEntries", batch.group(1))
         self.assertIn("getBatchNode()", batch.group(1))
-        self.assertNotRegex(batch.group(1), r"for \(auto const& entry : m_entries\)")
+        self.assertIn("entry.keep", batch.group(1))
+        camera = re.search(
+            r"void LayoutMirror::applyCameraOverrides\(PlayLayer\* real\) \{([\s\S]*?)\n\}",
+            self.layout,
+        ).group(1)
+        for token in (
+            "m_calcNonEffectObjects",
+            "m_calcNonEffectObjectsSize",
+            "m_visibleObjects",
+            "m_visibleObjectsCount",
+            "m_visibleObjects2",
+            "m_visibleObjects2Count",
+            "m_nonEffectObjects",
+            "m_frameRetainedCandidateCount < 64",
+            "m_sections",
+        ):
+            self.assertIn(token, camera)
+
+    def test_xdbot_opacity_has_separate_layout_state(self):
+        self.assertIn("unsigned char layoutOpacity", self.header)
+        self.assertIn("observeOpacity", self.header)
+        self.assertIn('"GameObject::setOpacity"', self.main)
+        self.assertRegex(
+            self.main,
+            r"GameObject::setOpacity\(opacity\);\s*LayoutMirror::get\(\)\.observeOpacity\(this, opacity\);",
+        )
+        self.assertIn("setSpriteVisible(object, true, true)", self.layout)
+        self.assertIn("setSpriteOpacity(object, entry.layoutOpacity)", self.layout)
+        self.assertIn("m_isGroupDisabled", self.layout)
 
     def test_uninstantiated_removed_deco_does_not_mark_map_incomplete(self):
         self.assertIn("pendingKeep", self.layout)
@@ -156,6 +186,7 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertNotIn("m_activeMainColorID", begin)
         self.assertIn("sprite->setColor(target)", begin)
         self.assertIn("sprite->setColor(state.color)", self.layout)
+        self.assertIn("restoreOpacity", self.layout)
 
     def test_local_layout_mutations_are_restored_same_frame(self):
         self.assertRegex(self.layout, r"beginLayoutPass\(real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);")
@@ -163,7 +194,9 @@ class RuntimeRegressionTests(unittest.TestCase):
 
     def test_shader_pass_is_bypassed_only_during_layout_rerender(self):
         self.assertIn("LayoutMirror::get().isRenderingLayout()", self.main)
-        self.assertIn("m_gameLayer->m_inShaderParent->visit()", self.main)
+        self.assertIn("m_gameLayer->m_inShaderObjectLayer", self.main)
+        self.assertIn("rawLayer->visit()", self.main)
+        self.assertNotIn("m_gameLayer->m_inShaderParent->visit()", self.main)
         self.assertNotIn("cocos2d::CCLayer::visit()", self.main)
         self.assertIn("ShaderLayer::visit();", self.main)
 

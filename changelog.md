@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.1
+
+- Restored structures on fully invisible levels by keeping XDBot's own visible/opaque post-add state separately from the decorated object's camera-culling state, then applying it only to current camera candidates.
+- Replaced the incomplete batch `setVisible` active set with an adaptive candidate path: GD's compact current-frame vectors, the ordinary non-effect camera grid, and the general section grid only as a low-candidate fallback. The pass remains independent of total level object count.
+- Prevented permanently pooled particle pointers from inheriting a removed owner's node decision, and made shared render-node collisions prefer retained main/detail visuals over suppression.
+- Fixed black local frames during shaders by visiting `m_inShaderObjectLayer` directly with a recursion guard instead of revisiting the shader parent/cache.
+- Added scoped opacity restoration and expanded runtime/official-binding regression checks for invisible structures, adaptive batching and the raw shader layer.
+
 ## v0.2.0
 
 - Replaced the camera-section pre-pass with a hybrid render mask: direct `CCNode::visit` decisions for ordinary nodes plus a visibility-tracked active set for sprites drawn through Cocos batch nodes. Reparented detail sprites, glow and particles no longer depend on object origins or section margins.

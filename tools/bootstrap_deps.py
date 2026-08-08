@@ -104,7 +104,7 @@ def validate_xdbot_addobject(raw_cpp: str) -> None:
     """Prove our local visit mask preserves pinned XDBot render semantics.
 
     v0.1.5 no longer creates a second PlayLayer; excluded/deco decisions come
-    from the exact getModifiedString output. v0.2.0 applies the visible result
+    from the exact getModifiedString output. v0.2.1 applies the visible result
     at CCNode::visit instead of mutating gameplay fields every frame, so verify
     the upstream block itself and the equivalent local draw decisions.
     """
