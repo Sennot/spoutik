@@ -839,24 +839,16 @@ bool LayoutMirror::isStableGameplayScene(CCDirector* director, PlayLayer* real) 
     return root == scene;
 }
 
-bool LayoutMirror::renderPlayerViewToFramebuffer(
+bool LayoutMirror::renderPlayerViewToDefaultFramebuffer(
     CCDirector* director,
-    PlayLayer* real,
-    unsigned int framebuffer,
-    int width,
-    int height
+    PlayLayer* real
 ) {
 #ifndef GEODE_IS_WINDOWS
     (void)director;
     (void)real;
-    (void)framebuffer;
-    (void)width;
-    (void)height;
     return false;
 #else
-    if (!isStableGameplayScene(director, real) || !framebuffer || width <= 0 || height <= 0) {
-        return false;
-    }
+    if (!isStableGameplayScene(director, real)) return false;
     auto* scene = director->getRunningScene();
 
     GLint previousFramebuffer = 0;
@@ -867,16 +859,10 @@ bool LayoutMirror::renderPlayerViewToFramebuffer(
     glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClearColor);
     auto const scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
 
-    // The isolated pass is initiated only after the ordinary scene finished on
-    // the window backbuffer. Never redirect a foreign mod/render-texture FBO.
+    // The second visit runs only after the ordinary stable gameplay draw and
+    // only on the window backbuffer. It never runs from swapBuffers and never
+    // touches transition scenes or a foreign mod/render-texture FBO.
     if (previousFramebuffer != 0) return false;
-
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
-        return false;
-    }
-    glViewport(0, 0, width, height);
     beginLayoutPass(director, real);
 
     glDisable(GL_SCISSOR_TEST);
@@ -884,8 +870,8 @@ bool LayoutMirror::renderPlayerViewToFramebuffer(
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     director->setProjection(director->getProjection());
 
-    // Render the SAME authoritative scene into our private target. Physics,
-    // camera, practice checkpoints, StartPos, music time and mod HUD therefore
+    // Render the SAME authoritative scene directly into the local backbuffer.
+    // Physics, camera, practice checkpoints, StartPos, music time and mod HUD
     // remain the real game state. ShaderLayer::visit is bypassed only here.
     scene->visit();
     if (auto* notification = director->getNotificationNode(); notification && notification->isVisible()) {
@@ -894,6 +880,8 @@ bool LayoutMirror::renderPlayerViewToFramebuffer(
 
     endLayoutPass();
 
+    // A visited third-party render node must not leak its private target into
+    // HackMega's post-draw UI or the presentation hook.
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
     glViewport(
         previousViewport[0],

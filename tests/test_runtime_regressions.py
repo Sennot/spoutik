@@ -200,7 +200,7 @@ class RuntimeRegressionTests(unittest.TestCase):
     def test_local_layout_mutations_are_restored_same_frame(self):
         self.assertRegex(
             self.layout,
-            r"renderPlayerViewToFramebuffer[\s\S]*beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
+            r"renderPlayerViewToDefaultFramebuffer[\s\S]*beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
         )
         self.assertIn("SavedVisualState", self.header)
 
@@ -221,13 +221,13 @@ class RuntimeRegressionTests(unittest.TestCase):
             self.assertNotIn(forbidden, swap)
         self.assertLess(swap.index("sendPreparedSpoutFrame"), swap.index("CCEGLView::swapBuffers();"))
 
-    def test_layout_window_copy_uses_native_fbo_blit(self):
-        self.assertIn("bool FrameCompositor::blitLayoutToDefault()", self.compositor)
-        self.assertIn("glBlitFramebuffer(", self.compositor)
-        self.assertIn("glBindFramebuffer(GL_READ_FRAMEBUFFER, m_layoutFramebuffer)", self.compositor)
-        self.assertIn("glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0)", self.compositor)
+    def test_layout_draws_directly_during_drawscene_without_fbo_blit(self):
+        self.assertNotIn("glBlitFramebuffer(", self.compositor)
+        self.assertNotIn("m_layoutFramebuffer", self.compositor)
+        self.assertNotIn("m_depthStencil", self.compositor)
         prepare = self.compositor[self.compositor.index("bool FrameCompositor::prepareLocalFrame") :]
-        self.assertIn("blitLayoutToDefault()", prepare)
+        self.assertIn("renderPlayerViewToDefaultFramebuffer(director, real)", prepare)
+        self.assertIn("captureDefaultTo(m_layoutTexture)", prepare)
         self.assertNotIn("drawFullscreen(\n        0,", prepare)
 
     def test_hackmega_overlay_is_preserved_on_both_outputs(self):
@@ -245,9 +245,7 @@ class RuntimeRegressionTests(unittest.TestCase):
             "m_layoutTexture",
             "m_presentedTexture",
             "m_spoutTexture",
-            "m_layoutFramebuffer",
             "m_spoutFramebuffer",
-            "GL_DEPTH_STENCIL_ATTACHMENT",
             "m_readyGeneration != m_generation",
             "m_frameScene != director->getRunningScene()",
             "m_frameLayer != real",
@@ -282,21 +280,21 @@ class RuntimeRegressionTests(unittest.TestCase):
             self.assertIn(token, self.compositor)
         self.assertNotIn("ccGLEnableVertexAttribs", self.compositor)
 
-    def test_layout_redraw_only_clears_its_private_framebuffer(self):
+    def test_layout_redraw_only_clears_stable_default_framebuffer(self):
         render = re.search(
-            r"bool LayoutMirror::renderPlayerViewToFramebuffer\([\s\S]*?\) \{([\s\S]*?)\n\}",
+            r"bool LayoutMirror::renderPlayerViewToDefaultFramebuffer\([\s\S]*?\) \{([\s\S]*?)\n\}",
             self.layout,
         ).group(1)
         self.assertLess(render.index("previousFramebuffer != 0"), render.index("glClear("))
-        self.assertLess(render.index("glBindFramebuffer(GL_FRAMEBUFFER, framebuffer)"), render.index("glClear("))
-        self.assertIn("glCheckFramebufferStatus(GL_FRAMEBUFFER)", render)
+        self.assertIn("isStableGameplayScene(director, real)", render)
+        self.assertNotIn("glBlitFramebuffer", render)
 
     def test_local_redraw_keeps_cocos_projection_setup(self):
         self.assertIn("director->setProjection(director->getProjection());", self.layout)
         self.assertNotIn("glStencilMask(~0u)", self.layout)
         self.assertIn("previousViewport", self.layout)
         self.assertIn("previousClearColor", self.layout)
-        render = self.layout[self.layout.index("bool LayoutMirror::renderPlayerViewToFramebuffer") :]
+        render = self.layout[self.layout.index("bool LayoutMirror::renderPlayerViewToDefaultFramebuffer") :]
         self.assertEqual(render.count("director->setProjection(director->getProjection());"), 1)
 
 

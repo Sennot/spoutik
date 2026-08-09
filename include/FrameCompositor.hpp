@@ -27,7 +27,6 @@ private:
     bool ensureTargets(int width, int height);
     bool ensureProgram();
     bool captureDefaultTo(unsigned int texture);
-    bool blitLayoutToDefault();
     bool drawFullscreen(
         unsigned int targetFramebuffer,
         int viewportX,
@@ -46,9 +45,7 @@ private:
     unsigned int m_layoutTexture = 0;
     unsigned int m_presentedTexture = 0;
     unsigned int m_spoutTexture = 0;
-    unsigned int m_layoutFramebuffer = 0;
     unsigned int m_spoutFramebuffer = 0;
-    unsigned int m_depthStencil = 0;
     int m_modeUniform = -1;
     int m_texture0Uniform = -1;
     int m_texture1Uniform = -1;

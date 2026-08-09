@@ -23,12 +23,9 @@ public:
     void finishFor(PlayLayer* real);
     void destroyFor(PlayLayer* real);
     bool isStableGameplayScene(cocos2d::CCDirector* director, PlayLayer* real) const;
-    bool renderPlayerViewToFramebuffer(
+    bool renderPlayerViewToDefaultFramebuffer(
         cocos2d::CCDirector* director,
-        PlayLayer* real,
-        unsigned int framebuffer,
-        int width,
-        int height
+        PlayLayer* real
     );
     NodeVisitAction beginNodeVisit(cocos2d::CCNode* node);
     void endNodeVisit(cocos2d::CCNode* node);

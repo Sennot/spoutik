@@ -37,8 +37,8 @@ checks = {
     "stable draw gate": r"kStableDrawsBeforeLayout = 3[\s\S]*advancePresentationGate[\s\S]*willSwitchToScene",
     "compositor GL attribute restoration": r"glGetVertexAttribPointerv[\s\S]*restoreAttrib\(kCCVertexAttrib_Position[\s\S]*restoreAttrib\(kCCVertexAttrib_TexCoords",
     "compositor RGB-only difference": r"presentedPixel\.rgb - baselinePixel\.rgb",
-    "private framebuffer clear guard": r"previousFramebuffer != 0[\s\S]*glBindFramebuffer\(GL_FRAMEBUFFER, framebuffer\)[\s\S]*glClear\(",
-    "Cocos projection before isolated visit": r"glBindFramebuffer\(GL_FRAMEBUFFER, framebuffer\)[\s\S]*setProjection\(director->getProjection\(\)\);[\s\S]*scene->visit\(\)",
+    "default framebuffer clear guard": r"previousFramebuffer != 0[\s\S]*beginLayoutPass\(director, real\)[\s\S]*glClear\(",
+    "Cocos projection before stable visit": r"setProjection\(director->getProjection\(\)\);[\s\S]*scene->visit\(\)",
     "XDBot full special palette": r"kBackgroundChannel[\s\S]*kGround1Channel[\s\S]*kGround2Channel[\s\S]*kLineChannel[\s\S]*kMG1Channel[\s\S]*kMG2Channel[\s\S]*splitView\(newColors, '\|'\)",
     "layout state restored": r"beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
     "Spout default FBO fallback": r"SendFbo\(0, 0, 0, invert\)",
@@ -72,7 +72,7 @@ for forbidden_hook in [
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
-if mod.get("version") != "v0.3.1": failed.append("mod version v0.3.1")
+if mod.get("version") != "v0.3.2": failed.append("mod version v0.3.2")
 
 resources = mod.get("resources", {}).get("files", [])
 for required in [

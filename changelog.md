@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.2
+
+- Removed the confirmed crashing private-Layout-FBO to default-framebuffer blit (`0xc0000374` immediately inside that boundary on the target NVIDIA context).
+- The stable second Layout visit now draws directly to the game backbuffer during `CCDirector::drawScene`, then captures that result as the overlay baseline. It still never runs in `swapBuffers` or during transitions.
+- Removed the Layout framebuffer and depth/stencil allocation entirely; only the offscreen composed Spout framebuffer remains.
+
 ## v0.3.1
 
 - Fixed a first-gameplay-frame heap-corruption crash detected immediately after the isolated Layout visit.

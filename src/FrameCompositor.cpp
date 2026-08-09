@@ -64,9 +64,7 @@ namespace {
 }
 
 void FrameCompositor::releaseTargets() {
-    if (m_depthStencil) glDeleteRenderbuffers(1, &m_depthStencil);
-    GLuint const framebuffers[] { m_layoutFramebuffer, m_spoutFramebuffer };
-    glDeleteFramebuffers(2, framebuffers);
+    if (m_spoutFramebuffer) glDeleteFramebuffers(1, &m_spoutFramebuffer);
     GLuint const textures[] {
         m_decoratedTexture,
         m_layoutTexture,
@@ -79,9 +77,7 @@ void FrameCompositor::releaseTargets() {
     m_layoutTexture = 0;
     m_presentedTexture = 0;
     m_spoutTexture = 0;
-    m_layoutFramebuffer = 0;
     m_spoutFramebuffer = 0;
-    m_depthStencil = 0;
     m_width = 0;
     m_height = 0;
     invalidate();
@@ -90,26 +86,21 @@ void FrameCompositor::releaseTargets() {
 bool FrameCompositor::ensureTargets(int width, int height) {
     if (width <= 0 || height <= 0) return false;
     if (m_decoratedTexture && m_layoutTexture && m_presentedTexture &&
-        m_spoutTexture && m_layoutFramebuffer && m_spoutFramebuffer &&
-        m_depthStencil && m_width == width && m_height == height) {
+        m_spoutTexture && m_spoutFramebuffer &&
+        m_width == width && m_height == height) {
         return true;
     }
 
     GLint oldFramebuffer = 0;
-    GLint oldRenderbuffer = 0;
     GLint oldActive = GL_TEXTURE0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &oldFramebuffer);
-    glGetIntegerv(GL_RENDERBUFFER_BINDING, &oldRenderbuffer);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &oldActive);
     glActiveTexture(GL_TEXTURE0);
     GLint oldTexture = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTexture);
 
     auto const oldFramebufferWasOurs =
-        static_cast<GLuint>(oldFramebuffer) == m_layoutFramebuffer ||
         static_cast<GLuint>(oldFramebuffer) == m_spoutFramebuffer;
-    auto const oldRenderbufferWasOurs =
-        static_cast<GLuint>(oldRenderbuffer) == m_depthStencil;
     auto const oldTextureWasOurs =
         static_cast<GLuint>(oldTexture) == m_decoratedTexture ||
         static_cast<GLuint>(oldTexture) == m_layoutTexture ||
@@ -143,19 +134,6 @@ bool FrameCompositor::ensureTargets(int width, int height) {
         );
     }
 
-    glGenFramebuffers(1, &m_layoutFramebuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, m_layoutFramebuffer);
-    glFramebufferTexture2D(
-        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_layoutTexture, 0
-    );
-    glGenRenderbuffers(1, &m_depthStencil);
-    glBindRenderbuffer(GL_RENDERBUFFER, m_depthStencil);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
-    glFramebufferRenderbuffer(
-        GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_depthStencil
-    );
-    auto const layoutComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-
     glGenFramebuffers(1, &m_spoutFramebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, m_spoutFramebuffer);
     glFramebufferTexture2D(
@@ -167,10 +145,6 @@ bool FrameCompositor::ensureTargets(int width, int height) {
         GL_FRAMEBUFFER,
         oldFramebufferWasOurs ? 0 : static_cast<GLuint>(oldFramebuffer)
     );
-    glBindRenderbuffer(
-        GL_RENDERBUFFER,
-        oldRenderbufferWasOurs ? 0 : static_cast<GLuint>(oldRenderbuffer)
-    );
     glBindTexture(
         GL_TEXTURE_2D,
         oldTextureWasOurs ? 0 : static_cast<GLuint>(oldTexture)
@@ -178,14 +152,10 @@ bool FrameCompositor::ensureTargets(int width, int height) {
     glActiveTexture(static_cast<GLenum>(oldActive));
     ccGLInvalidateStateCache();
 
-    if (!layoutComplete || !spoutComplete) {
+    if (!spoutComplete) {
         if (!m_failureLogged) {
             m_failureLogged = true;
-            log::error(
-                "Dual-frame FBO creation failed: layoutComplete={}, spoutComplete={}",
-                layoutComplete,
-                spoutComplete
-            );
+            log::error("Dual-frame Spout FBO creation failed");
         }
         releaseTargets();
         return false;
@@ -285,44 +255,6 @@ bool FrameCompositor::captureDefaultTo(unsigned int texture) {
     );
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(oldTexture));
     glActiveTexture(static_cast<GLenum>(oldActive));
-    return true;
-}
-
-bool FrameCompositor::blitLayoutToDefault() {
-    if (!m_layoutFramebuffer || m_width <= 0 || m_height <= 0) return false;
-
-    GLint oldReadFramebuffer = 0;
-    GLint oldDrawFramebuffer = 0;
-    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &oldReadFramebuffer);
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &oldDrawFramebuffer);
-    if (oldDrawFramebuffer != 0) return false;
-
-    // This is the only gameplay write to the window backbuffer. A native FBO
-    // blit avoids compiling a shader or touching Cocos vertex attributes in
-    // the fragile interval immediately after the isolated second scene visit.
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_layoutFramebuffer);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(
-        0,
-        0,
-        m_width,
-        m_height,
-        m_viewX,
-        m_viewY,
-        m_viewX + m_width,
-        m_viewY + m_height,
-        GL_COLOR_BUFFER_BIT,
-        GL_NEAREST
-    );
-    glBindFramebuffer(
-        GL_READ_FRAMEBUFFER,
-        static_cast<GLuint>(oldReadFramebuffer)
-    );
-    glBindFramebuffer(
-        GL_DRAW_FRAMEBUFFER,
-        static_cast<GLuint>(oldDrawFramebuffer)
-    );
-    ccGLInvalidateStateCache();
     return true;
 }
 
@@ -460,14 +392,12 @@ bool FrameCompositor::prepareLocalFrame(CCDirector* director, PlayLayer* real) {
 
     if (!captureDefaultTo(m_decoratedTexture)) return false;
     if (trace) log::info("Dual-frame trace {}: decorated capture complete", m_generation);
-    if (!LayoutMirror::get().renderPlayerViewToFramebuffer(
-        director, real, m_layoutFramebuffer, m_width, m_height
-    )) {
+    if (!LayoutMirror::get().renderPlayerViewToDefaultFramebuffer(director, real)) {
         return false;
     }
-    if (trace) log::info("Dual-frame trace {}: isolated Layout visit complete", m_generation);
-    if (!blitLayoutToDefault()) return false;
-    if (trace) log::info("Dual-frame trace {}: native Layout blit complete", m_generation);
+    if (trace) log::info("Dual-frame trace {}: direct Layout visit complete", m_generation);
+    if (!captureDefaultTo(m_layoutTexture)) return false;
+    if (trace) log::info("Dual-frame trace {}: Layout baseline capture complete", m_generation);
 
     m_frameScene = director->getRunningScene();
     m_frameLayer = real;
@@ -476,10 +406,9 @@ bool FrameCompositor::prepareLocalFrame(CCDirector* director, PlayLayer* real) {
     if (!m_statusLogged) {
         m_statusLogged = true;
         log::info(
-            "Isolated dual-frame compositor active: {}x{}, layout FBO {}, Spout FBO {}",
+            "Stable dual-frame compositor active: {}x{}, direct Layout + Spout FBO {}",
             m_width,
             m_height,
-            m_layoutFramebuffer,
             m_spoutFramebuffer
         );
     }
