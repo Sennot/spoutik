@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.3
+
+- Prevented the local Layout pass from revisiting `CCTransitionScene`: entering a level no longer flashes the retained level card/menu, and leaving gameplay no longer clears the transition into a full-screen blue frame.
+- Invalidated presentation-overlay textures whenever gameplay enters a transition or tears down, so no baseline/difference pixels can leak across scene lifetimes.
+- Preserved and restored the OpenGL position/texture-coordinate attribute bindings around the MegaHack overlay replay, preventing corrupted geometry on following frames.
+- Refused to clear or redraw any non-default framebuffer, protecting render textures owned by Geometry Dash and other mods.
+
 ## v0.2.2
 
 - Fixed HackMega's global interface being erased inside levels. A GPU-only baseline/difference replay preserves presentation pixels drawn by HackMega and other late overlays over the local Layout pass while Spout still receives the complete original framebuffer.

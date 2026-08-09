@@ -14,6 +14,8 @@ class PresentationOverlay final {
 public:
     static PresentationOverlay& get();
 
+    void setGameplayActive(bool active);
+    void discardFrame();
     void captureSceneBaseline();
     bool capturePresentedFrame();
     void replayDifference();
@@ -41,5 +43,6 @@ private:
     bool m_presentedReady = false;
     bool m_statusLogged = false;
     bool m_failureLogged = false;
+    bool m_gameplayActive = false;
 #endif
 };

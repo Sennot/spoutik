@@ -13,8 +13,39 @@ PresentationOverlay& PresentationOverlay::get() {
     return instance;
 }
 
+void PresentationOverlay::setGameplayActive(bool active) {
+#ifdef GEODE_IS_WINDOWS
+    if (active == m_gameplayActive) {
+        if (!active) discardFrame();
+        return;
+    }
+
+    m_gameplayActive = active;
+    discardFrame();
+    if (active) {
+        log::info("Presentation overlay armed for stable gameplay scene");
+    }
+    else {
+        log::info("Presentation overlay suspended for scene transition/teardown");
+    }
+#else
+    (void)active;
+#endif
+}
+
+void PresentationOverlay::discardFrame() {
+#ifdef GEODE_IS_WINDOWS
+    m_baselineReady = false;
+    m_presentedReady = false;
+#endif
+}
+
 void PresentationOverlay::captureSceneBaseline() {
 #ifdef GEODE_IS_WINDOWS
+    if (!m_gameplayActive) {
+        discardFrame();
+        return;
+    }
     m_presentedReady = false;
     m_baselineReady = captureTexture(false);
 #endif
@@ -24,7 +55,7 @@ bool PresentationOverlay::capturePresentedFrame() {
 #ifndef GEODE_IS_WINDOWS
     return false;
 #else
-    if (!m_baselineReady) return false;
+    if (!m_gameplayActive || !m_baselineReady) return false;
     m_presentedReady = captureTexture(true);
     return m_presentedReady;
 #endif
@@ -170,9 +201,8 @@ bool PresentationOverlay::ensureProgram() {
 
 void PresentationOverlay::replayDifference() {
 #ifdef GEODE_IS_WINDOWS
-    if (!m_baselineReady || !m_presentedReady) return;
-    m_baselineReady = false;
-    m_presentedReady = false;
+    if (!m_gameplayActive || !m_baselineReady || !m_presentedReady) return;
+    discardFrame();
     if (!ensureProgram()) {
         if (!m_failureLogged) {
             m_failureLogged = true;
@@ -234,8 +264,41 @@ void PresentationOverlay::replayDifference() {
     glBindTexture(GL_TEXTURE_2D, m_presentedTexture);
     glUniform1i(m_presentedUniform, 1);
 
+    struct VertexAttribState {
+        GLint enabled = GL_FALSE;
+        GLint size = 4;
+        GLint type = GL_FLOAT;
+        GLint normalized = GL_FALSE;
+        GLint stride = 0;
+        GLint buffer = 0;
+        void* pointer = nullptr;
+    };
+    auto captureAttrib = [](GLuint index) {
+        VertexAttribState state;
+        glGetVertexAttribiv(index, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &state.enabled);
+        glGetVertexAttribiv(index, GL_VERTEX_ATTRIB_ARRAY_SIZE, &state.size);
+        glGetVertexAttribiv(index, GL_VERTEX_ATTRIB_ARRAY_TYPE, &state.type);
+        glGetVertexAttribiv(index, GL_VERTEX_ATTRIB_ARRAY_NORMALIZED, &state.normalized);
+        glGetVertexAttribiv(index, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &state.stride);
+        glGetVertexAttribiv(index, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, &state.buffer);
+        glGetVertexAttribPointerv(index, GL_VERTEX_ATTRIB_ARRAY_POINTER, &state.pointer);
+        return state;
+    };
+    auto restoreAttrib = [](GLuint index, VertexAttribState const& state) {
+        glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(state.buffer));
+        glVertexAttribPointer(
+            index, state.size, static_cast<GLenum>(state.type),
+            static_cast<GLboolean>(state.normalized), state.stride, state.pointer
+        );
+        if (state.enabled) glEnableVertexAttribArray(index);
+        else glDisableVertexAttribArray(index);
+    };
+
+    auto const oldPosition = captureAttrib(kCCVertexAttrib_Position);
+    auto const oldTexCoords = captureAttrib(kCCVertexAttrib_TexCoords);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    ccGLEnableVertexAttribs(kCCVertexAttribFlag_Position | kCCVertexAttribFlag_TexCoords);
+    glEnableVertexAttribArray(kCCVertexAttrib_Position);
+    glEnableVertexAttribArray(kCCVertexAttrib_TexCoords);
     glVertexAttribPointer(
         kCCVertexAttrib_Position, 2, GL_FLOAT, GL_FALSE, 0, kPositions
     );
@@ -244,6 +307,8 @@ void PresentationOverlay::replayDifference() {
     );
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
+    restoreAttrib(kCCVertexAttrib_Position, oldPosition);
+    restoreAttrib(kCCVertexAttrib_TexCoords, oldTexCoords);
     glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(oldArrayBuffer));
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(oldTexture1));

@@ -32,6 +32,9 @@ checks = {
     "XDBot actual object colors": r"m_isObjectBlack \? kLayoutBlack[\s\S]*m_isColorSpriteBlack \? kLayoutBlack[\s\S]*sprite->setColor\(target\)",
     "HackMega relative capture order": r"setHookPriorityAfterPre\([\s\S]*cocos2d::CCEGLView::swapBuffers[\s\S]*absolllute\.hackmega",
     "HackMega local overlay replay": r"captureSceneBaseline[\s\S]*capturePresentedFrame[\s\S]*replayDifference[\s\S]*glCopyTexSubImage2D",
+    "stable-scene transition guard": r"isStableGameplayScene[\s\S]*while \(root->getParent\(\)\)[\s\S]*return root == scene",
+    "overlay GL attribute restoration": r"glGetVertexAttribPointerv[\s\S]*restoreAttrib\(kCCVertexAttrib_Position[\s\S]*restoreAttrib\(kCCVertexAttrib_TexCoords",
+    "foreign framebuffer clear guard": r"GL_FRAMEBUFFER_BINDING[\s\S]*if \(framebuffer != 0\)[\s\S]*glClear\(",
     "XDBot full special palette": r"kBackgroundChannel[\s\S]*kGround1Channel[\s\S]*kGround2Channel[\s\S]*kLineChannel[\s\S]*kMG1Channel[\s\S]*kMG2Channel[\s\S]*splitView\(newColors, '\|'\)",
     "layout state restored": r"beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
     "Spout default FBO": r"SendFbo\(0, 0, 0, invert\)",
@@ -63,7 +66,7 @@ for forbidden_hook in [
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
-if mod.get("version") != "v0.2.2": failed.append("mod version v0.2.2")
+if mod.get("version") != "v0.2.3": failed.append("mod version v0.2.3")
 
 resources = mod.get("resources", {}).get("files", [])
 for required in [

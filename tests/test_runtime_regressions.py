@@ -223,6 +223,35 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("presentedPixel - scenePixel", self.overlay)
         self.assertNotIn("glReadPixels", self.overlay)
 
+    def test_transition_scenes_are_never_rerendered(self):
+        self.assertIn("isStableGameplayScene", self.main + self.layout + self.header)
+        self.assertIn("while (root->getParent())", self.layout)
+        self.assertIn("return root == scene", self.layout)
+        self.assertRegex(
+            self.main,
+            r"isStableGameplayScene\(this, real\);[\s\S]*setGameplayActive\(stable\);[\s\S]*if \(stable\) presentation\.captureSceneBaseline\(\);",
+        )
+        self.assertIn("PresentationOverlay::get().setGameplayActive(false);", self.main)
+
+    def test_overlay_replay_restores_vertex_attribute_state(self):
+        for token in (
+            "GL_VERTEX_ATTRIB_ARRAY_ENABLED",
+            "GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING",
+            "glGetVertexAttribPointerv",
+            "restoreAttrib(kCCVertexAttrib_Position",
+            "restoreAttrib(kCCVertexAttrib_TexCoords",
+        ):
+            self.assertIn(token, self.overlay)
+        self.assertNotIn("ccGLEnableVertexAttribs", self.overlay)
+
+    def test_local_redraw_never_clears_a_foreign_framebuffer(self):
+        render = re.search(
+            r"bool LayoutMirror::renderPlayerView\(CCDirector\* director, PlayLayer\* real\) \{([\s\S]*?)\n\}",
+            self.layout,
+        ).group(1)
+        self.assertLess(render.index("GL_FRAMEBUFFER_BINDING"), render.index("glClear("))
+        self.assertIn("if (framebuffer != 0)", render)
+
 
 if __name__ == "__main__":
     unittest.main()

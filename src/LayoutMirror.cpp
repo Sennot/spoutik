@@ -184,6 +184,7 @@ void LayoutMirror::clear() {
     m_spatialIndexReady = false;
     m_renderMapReady = false;
     m_renderingLayout = false;
+    m_reportedFramebufferSkip = false;
 }
 
 void LayoutMirror::prepareFor(PlayLayer* real, GJGameLevel* level) {
@@ -812,16 +813,46 @@ void LayoutMirror::restoreLayoutOverrides() {
     m_savedSceneSprites.clear();
 }
 
-void LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
+bool LayoutMirror::isStableGameplayScene(CCDirector* director, PlayLayer* real) const {
+    if (!director || !real || real != m_real) return false;
+    if (!Mod::get()->getSettingValue<bool>("enabled")) return false;
+    if (!Mod::get()->getSettingValue<bool>("layout-player-view")) return false;
+
+    auto* scene = director->getRunningScene();
+    if (!scene) return false;
+
+    // CCTransitionScene renders retained input/output scenes through its own
+    // textures and timing. Re-visiting it at swap time repeats the transition:
+    // on entry that leaks the level card/menu, and on exit it can leave only
+    // the transition clear color. A stable PlayLayer belongs to the director's
+    // running scene itself; during either transition its root is a different
+    // retained CCScene.
+    cocos2d::CCNode* root = real;
+    while (root->getParent()) root = root->getParent();
+    return root == scene;
+}
+
+bool LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
 #ifndef GEODE_IS_WINDOWS
     (void)director;
     (void)real;
+    return false;
 #else
-    if (!director || !real || real != m_real) return;
-    if (!Mod::get()->getSettingValue<bool>("enabled")) return;
-    if (!Mod::get()->getSettingValue<bool>("layout-player-view")) return;
+    if (!isStableGameplayScene(director, real)) return false;
     auto* scene = director->getRunningScene();
-    if (!scene) return;
+
+    GLint framebuffer = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
+    if (framebuffer != 0) {
+        if (!m_reportedFramebufferSkip) {
+            m_reportedFramebufferSkip = true;
+            log::warn(
+                "Layout redraw skipped safely: presentation framebuffer is {}, not default FBO 0",
+                framebuffer
+            );
+        }
+        return false;
+    }
 
     beginLayoutPass(director, real);
 
@@ -840,5 +871,6 @@ void LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
     }
 
     endLayoutPass();
+    return true;
 #endif
 }

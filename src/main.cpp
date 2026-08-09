@@ -49,6 +49,7 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
     }
 
     void onQuit() {
+        PresentationOverlay::get().setGameplayActive(false);
         LayoutMirror::get().destroyFor(this);
         PlayLayer::onQuit();
     }
@@ -136,10 +137,11 @@ class $modify(SpoutLayoutDirector, cocos2d::CCDirector) {
 
     void drawScene() {
         CCDirector::drawScene();
-        if (PlayLayer::get() && Mod::get()->getSettingValue<bool>("enabled") &&
-            Mod::get()->getSettingValue<bool>("layout-player-view")) {
-            PresentationOverlay::get().captureSceneBaseline();
-        }
+        auto* real = PlayLayer::get();
+        auto const stable = LayoutMirror::get().isStableGameplayScene(this, real);
+        auto& presentation = PresentationOverlay::get();
+        presentation.setGameplayActive(stable);
+        if (stable) presentation.captureSceneBaseline();
     }
 };
 
@@ -166,14 +168,18 @@ class $modify(SpoutLayoutEGLView, cocos2d::CCEGLView) {
         // scene remains authoritative and is restored before the actual swap.
         auto* director = cocos2d::CCDirector::get();
         auto* real = PlayLayer::get();
-        if (director && real) {
+        auto& layout = LayoutMirror::get();
+        auto& presentation = PresentationOverlay::get();
+        auto const stable = layout.isStableGameplayScene(director, real);
+        presentation.setGameplayActive(stable);
+        if (stable) {
             // Save the fully presented frame too. After the Layout redraw, a
             // GPU difference pass restores only HackMega/late-overlay pixels;
             // OBS keeps the untouched full frame captured above.
-            auto const replayPresentation =
-                PresentationOverlay::get().capturePresentedFrame();
-            LayoutMirror::get().renderPlayerView(director, real);
-            if (replayPresentation) PresentationOverlay::get().replayDifference();
+            auto const replayPresentation = presentation.capturePresentedFrame();
+            auto const rendered = layout.renderPlayerView(director, real);
+            if (rendered && replayPresentation) presentation.replayDifference();
+            else presentation.discardFrame();
         }
 
         CCEGLView::swapBuffers();
