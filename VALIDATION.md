@@ -1,72 +1,49 @@
-# Validation notes
+# Validation report
 
-Target: **Geometry Dash 2.2081, Geode v5.8.2, Windows x64**.
+Validation target: **Baconsistent v0.4.2** (`strafe.baconsistent`), Geode **5.8.2**, Geometry Dash **2.2081**, **Windows x64**.
 
-## Checks included in the source
+## Sandbox checks
 
-### 1. Offline project invariants
+The source package was checked with:
 
-```powershell
-python tools/verify_bindings.py
-```
+- GCC C++23 standalone core tests using `-Wall -Wextra -Werror -pedantic`.
+- Clang C++23 standalone core tests under AddressSanitizer + UndefinedBehaviorSanitizer.
+- JSON parsing of `mod.json`.
+- YAML parsing of the Windows-only GitHub Actions workflow.
+- PNG decoding/verification for `logo.png` and every custom file in `resources/`.
+- Cross-check that every custom `*.png` resource referenced by the C++ UI exists in `resources/`.
+- Scan ensuring PlayLayer still creates no persistent gameplay HUD nodes; the only gameplay UI path added in v0.4 is the transient success notification.
+- Static checks that pause StartPos progression, notifications, Practice protection and Noclip protection settings are present and enabled by default.
+- Clean-package extraction followed by a second standalone core-test compile/run.
 
-Checks the source shape itself, including:
+The standalone tests cover:
 
-- `PlayLayer::init`, `PlayLayer::addObject` and cleanup hook signatures used by this project;
-- final `CCEGLView::swapBuffers` pre-hook with `Priority::Last`;
-- Spout send occurring before the local Layout redraw and before the real swap;
-- documented default-FBO `SendFbo(0, 0, 0, ...)`;
-- complete pinned-XDBot serialized-record alignment with no runtime-position key;
-- binding live objects during the authoritative `PlayLayer::addObject` path;
-- full-object-list decoration masking without visible-cache dependence;
-- immediate XDBot main/detail coloring and same-frame restoration;
-- all six pinned XDBot special palette channels (BG/G1/G2/LINE/MG1/MG2);
-- absence of a second PlayLayer, gameplay tick, reset, checkpoint, input or audio path;
-- application-local Spout GPU texture mode forcing while retaining the sender for CPU-mode diagnosis;
-- Geode 5.8.2 / GD 2.2081 / Win64 CI target and resource declarations.
+- legacy 2.1 and modern 2.2 percentage math;
+- paired StartPos normalization;
+- irregular fixed-stage boundaries;
+- strict stage starts;
+- long runs counting only the selected small fixed stage once per attempt;
+- backwards recommendation;
+- repetition persistence and malformed input;
+- per-stage repetition targets, including counts above the global default;
+- statistics attempts/successes/success rates/streaks/training time;
+- statistics serialization;
+- completed-round history and current-round reset behavior;
+- remaining-run calculations used by the pause StartPos progression bar;
+- Practice Mode protection semantics;
+- Death-Tracker-style noclip-hit validity semantics (clean noclip runs count; suppressed lethal collisions do not);
+- invalid-attempt statistics rollback, including playtime.
 
-### 2. XDBot transform audit
+## Native Geode build
 
-```powershell
-python -m unittest discover -s tests -p "test_*.py" -v
-python tools/bootstrap_deps.py --validate-only
-```
+The preparation sandbox does not contain a Geode SDK checkout and outbound `git` access is unavailable, so a native Windows Geode compile/link/package cannot be truthfully claimed here.
 
-After bootstrap, `--validate-only` rebuilds the expected adaptation from the pristine upstream copies and requires exact equality with the compiled `vendor/xdbot/layout_mode.hpp/.cpp`. It also compares the mirror-side `addObject` mutation sequence with the pinned XDBot hook and validates that `SpoutLibrary.dll` is a non-truncated PE x86-64 image.
+The repository includes `.github/workflows/build.yml`, configured only for `windows-latest` / `Win64` with `geode-sdk/build-geode-mod` and SDK version `5.8.2` from `mod.json`. That GitHub Actions job is the final platform-specific ABI/link/package check.
 
-### 3. Live official Geode binding declarations
+## Packaging identity
 
-CI runs:
+The source archive is repository-rooted. `mod.json`, `.github/`, `src/`, and `resources/` are top-level ZIP entries. CI explicitly requires `mod.json.version == v0.4.2`.
 
-```powershell
-python tools/verify_upstream_bindings.py
-```
+## v0.4.2 noclip regression
 
-This fetches the official `geode-sdk/bindings` files for GD 2.2081 and explicitly checks every method/member used by the current render path, including `PlayLayer::addObject`, GameObject main/detail color APIs, both ground layers, middleground sprites, ShaderLayer and `CCEGLView::swapBuffers`.
-
-### 4. Authoritative compiler check
-
-GitHub Actions then builds with **Clang/Ninja / Windows x64 / Geode v5.8.2** through `geode-sdk/build-geode-mod@main` in Release mode with LTO. This is the actual generated-binding and C++ ABI compile test.
-
-### 5. Final `.geode` package check
-
-After compilation:
-
-```powershell
-python tools/verify_geode_package.py <build-output>
-```
-
-The workflow opens the produced `.geode` and refuses the artifact unless the x64 `SpoutLibrary.dll`, Spout license, XDBot credits and `mod.json` are physically present.
-
-## What this sandbox cannot claim
-
-The local environment used to prepare this source does not provide a running Windows Geometry Dash + OBS + Spout stack, so runtime GPU interop, third-party mod ordering and actual level-by-level visual synchronization cannot be proven here. Those require launching the produced Win64 `.geode` in Geometry Dash. The source and public declarations can be checked here; the included GitHub Actions workflow performs the real Windows compile/package verification.
-
-## Geode version metadata
-
-`mod.json` uses `"geode": "5.8.2"` (without the Git tag prefix `v`); GitHub Actions still uses `sdk: v5.8.2`.
-
-
-## v0.1.5 single-world regression gates
-
-CI rejects any return of a second `PlayLayer::create` path or mirror calls to `update`, `resetLevel`, checkpoint APIs, or `handleButton`. It also verifies that the full SpoutLibrary 2.007.017 header is bootstrapped and that texture mode is requested with `SetShareMode(0)`, `SetCPUmode(false)`, `SetMemoryShareMode(false)`, `SetAutoShare(false)` and `SetCPUshare(false)`.
+Standalone tests cover StartPos/reset pre-frame calls, null destroy events, conservative baseline detection, native ignore-damage detection, real deaths, and level-end exclusions.

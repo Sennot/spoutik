@@ -3,42 +3,147 @@
   "gd": {
     "win": "2.2081"
   },
-  "id": "spoutlayout.dualview",
-  "name": "Spout Layout Dual View",
-  "version": "v0.2.4",
-  "developer": "YourName",
-  "description": "Layout locally, full GD frame over Spout2.",
-  "resources": {
-    "files": [
-      "resources/spout/SpoutLibrary.dll",
-      "resources/licenses/Spout2-LICENSE.txt",
-      "resources/licenses/XDBotFork-CREDITS.txt"
-    ]
-  },
+  "id": "strafe.baconsistent",
+  "name": "Baconsistent",
+  "version": "v0.4.2",
+  "developer": "Strafe",
+  "description": "cock trainer meow",
+  "tags": [
+    "gameplay",
+    "utility",
+    "interface",
+    "offline"
+  ],
   "settings": {
+    "training-title": {
+      "type": "title",
+      "name": "Training"
+    },
     "enabled": {
       "type": "bool",
-      "name": "Enable dual view",
-      "description": "Send the normal decorated frame to Spout and display Layout Mode locally while a PlayLayer is active.",
+      "name": "Enable Baconsistent",
+      "description": "Track fixed-part repetitions while playing classic levels.",
       "default": true
     },
-    "sender-name": {
-      "type": "string",
-      "name": "Spout sender name",
-      "description": "Name shown in OBS Spout2 Capture.",
-      "default": "Geometry Dash Full"
+    "startpos-title": {
+      "type": "title",
+      "name": "StartPos analysis"
     },
-    "invert-spout": {
+    "auto-detect-startposes": {
       "type": "bool",
-      "name": "Invert Spout texture",
-      "description": "OpenGL framebuffers are normally inverted for Spout receivers.",
+      "name": "Auto-detect StartPos parts",
+      "description": "Scan StartPos objects in the loaded practice copy and use them as fixed part boundaries. The detected profile is cached for the original level ID.",
       "default": true
     },
-    "layout-player-view": {
+    "legacy-2-1-percentages": {
       "type": "bool",
-      "name": "Layout on game window",
-      "description": "Temporarily applies the XDBot Layout render mask to the authoritative scene only for the local backbuffer; no second physics world is created.",
+      "name": "Use 2.1 percentages",
+      "description": "Use legacy GD 2.1 X-position percentages for StartPos boundaries and runtime progress. Disable for modern GD 2.2 time-based percentages.",
+      "default": false
+    },
+    "parts": {
+      "type": "int",
+      "name": "Fallback number of parts",
+      "description": "Used only when no cached/detected StartPos profile is available (or StartPos auto-detection is disabled).",
+      "default": 10,
+      "min": 2,
+      "max": 20,
+      "control": {
+        "arrows": true,
+        "arrow-step": 1,
+        "big-arrows": true,
+        "big-arrow-step": 5,
+        "slider": false,
+        "input": true
+      }
+    },
+    "repetitions": {
+      "type": "int",
+      "name": "Repetitions per part",
+      "description": "Default repetitions for every fixed stage. Individual stages can override this target from the pause menu.",
+      "default": 20,
+      "min": 1,
+      "max": 100,
+      "control": {
+        "arrows": true,
+        "arrow-step": 1,
+        "big-arrows": true,
+        "big-arrow-step": 5,
+        "slider": false,
+        "input": true
+      }
+    },
+    "auto-previous": {
+      "type": "bool",
+      "name": "Move backwards automatically",
+      "description": "When a part reaches its target, select the previous unfinished part. This follows the recommended 90-100 -> 80-90 -> ... order.",
+      "default": true
+    },
+    "auto-match-start": {
+      "type": "bool",
+      "name": "Match start position",
+      "description": "When an attempt starts near any detected StartPos boundary, automatically select that exact part.",
+      "default": true
+    },
+    "strict-start": {
+      "type": "bool",
+      "name": "Require exact small runs",
+      "description": "Only count a part if the attempt started near that part's beginning. Disable this if you want runs from earlier percentages to count too.",
+      "default": true
+    },
+    "start-tolerance": {
+      "type": "float",
+      "name": "Start tolerance (%)",
+      "description": "How close an attempt start must be to the selected part boundary.",
+      "default": 1.5,
+      "min": 0.1,
+      "max": 5.0,
+      "control": {
+        "arrows": true,
+        "arrow-step": 0.1,
+        "big-arrows": true,
+        "big-arrow-step": 0.5,
+        "slider": true,
+        "slider-step": 0.1,
+        "input": true
+      }
+    },
+    "validity-title": {
+      "type": "title",
+      "name": "Run validity"
+    },
+    "practice-mode-protection": {
+      "type": "bool",
+      "name": "Practice Mode protection",
+      "description": "When enabled, attempts that use Practice Mode are ignored completely and do not affect progress or statistics.",
+      "default": true
+    },
+    "noclip-protection": {
+      "type": "bool",
+      "name": "Noclip protection",
+      "description": "When enabled, a run is ignored only if GD attempts a lethal collision and noclip keeps the player alive. Merely having noclip enabled does not block a clean A-to-B run.",
+      "default": true
+    },
+    "pause-ux-title": {
+      "type": "title",
+      "name": "Pause UX"
+    },
+    "pause-startpos-progress": {
+      "type": "bool",
+      "name": "Show StartPos progress on pause",
+      "description": "Replace the Practice Mode progress area while paused with the active StartPos repetition counter and remaining runs.",
+      "default": true
+    },
+    "success-notifications": {
+      "type": "bool",
+      "name": "Show successful-run notifications",
+      "description": "Show a short branded notification whenever the active fixed StartPos stage is successfully counted. Mastered stages and completed rounds get special notifications.",
       "default": true
     }
+  },
+  "resources": {
+    "sprites": [
+      "resources/*.png"
+    ]
   }
 }
