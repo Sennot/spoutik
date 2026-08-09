@@ -1,2 +1,0 @@
-Baconsistent v0.4.2
-Windows x64 / GD 2.2081 / Geode 5.8.2
