@@ -13,9 +13,10 @@ python tools/verify_bindings.py
 Checks the source shape itself, including:
 
 - `PlayLayer::init`, `PlayLayer::addObject` and cleanup hook signatures used by this project;
-- final `CCEGLView::swapBuffers` pre-hook with `Priority::Last`;
-- Spout send occurring before the local Layout redraw and before the real swap;
-- documented default-FBO `SendFbo(0, 0, 0, ...)`;
+- isolated Layout FBO preparation after the ordinary `CCDirector::drawScene` render;
+- a scene-visit/clear-free `CCEGLView::swapBuffers` path that only validates, composes, sends and swaps;
+- documented nonzero-FBO Spout gameplay send plus default-FBO/texture fallbacks;
+- strict scene, layer and frame-generation matching before composition;
 - complete pinned-XDBot serialized-record alignment with no runtime-position key;
 - binding live objects during the authoritative `PlayLayer::addObject` path;
 - full-object-list decoration masking without visible-cache dependence;

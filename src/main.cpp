@@ -5,8 +5,8 @@
 #include <Geode/modify/CCDirector.hpp>
 #include <Geode/modify/CCNode.hpp>
 #include <Geode/modify/GameObject.hpp>
+#include "FrameCompositor.hpp"
 #include "LayoutMirror.hpp"
-#include "PresentationOverlay.hpp"
 #include "SpoutSender.hpp"
 
 using namespace geode::prelude;
@@ -44,20 +44,13 @@ namespace {
         return s_presentationGate.stableDraws >= kStableDrawsBeforeLayout;
     }
 
-    bool isPresentationGateOpen(cocos2d::CCDirector* director, PlayLayer* real) {
-        return director && real &&
-            s_presentationGate.scene == director->getRunningScene() &&
-            s_presentationGate.layer == real &&
-            s_presentationGate.stableDraws >= kStableDrawsBeforeLayout &&
-            LayoutMirror::get().isStableGameplayScene(director, real);
-    }
 }
 
 // This mod deliberately has ONE gameplay world only.
-// The decorated authoritative PlayLayer is rendered normally and sent to Spout.
-// At swap time we temporarily apply the XDBot-derived visual mask, render that
-// same scene into the local backbuffer, then restore every touched visual field.
-// No second update/reset/checkpoint/input/music path exists.
+// The decorated authoritative PlayLayer is rendered normally, copied on-GPU,
+// and then rendered with the XDBot-derived visual mask into a private FBO. The
+// local backbuffer receives that finished Layout texture before late overlays;
+// swapBuffers only composes/sends offscreen and never visits the scene.
 
 class $modify(SpoutLayoutPlayLayer, PlayLayer) {
     static void onModify(auto& self) {
@@ -92,7 +85,7 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
 
     void onQuit() {
         resetPresentationGate();
-        PresentationOverlay::get().setGameplayActive(false);
+        FrameCompositor::get().invalidate();
         LayoutMirror::get().destroyFor(this);
         PlayLayer::onQuit();
     }
@@ -166,8 +159,8 @@ class $modify(SpoutLayoutNode, cocos2d::CCNode) {
 class $modify(SpoutLayoutDirector, cocos2d::CCDirector) {
     static void onModify(auto& self) {
         // HackMega draws its global CoreDirector UI after the ordinary scene.
-        // Running inside its drawScene hook captures the pristine decorated
-        // scene first; the final presentation is captured at swapBuffers.
+        // Running inside its drawScene hook prepares and installs Layout before
+        // that post-draw UI; the final presentation is captured at swapBuffers.
         if (!self.setHookPriorityAfterPre(
             "cocos2d::CCDirector::drawScene", "absolllute.hackmega"
         )) {
@@ -185,7 +178,7 @@ class $modify(SpoutLayoutDirector, cocos2d::CCDirector) {
 
     void willSwitchToScene(cocos2d::CCScene* scene) {
         resetPresentationGate();
-        PresentationOverlay::get().setGameplayActive(false);
+        FrameCompositor::get().invalidate();
         CCDirector::willSwitchToScene(scene);
     }
 
@@ -193,16 +186,16 @@ class $modify(SpoutLayoutDirector, cocos2d::CCDirector) {
         CCDirector::drawScene();
         auto* real = PlayLayer::get();
         auto const stable = advancePresentationGate(this, real);
-        auto& presentation = PresentationOverlay::get();
-        presentation.setGameplayActive(stable);
-        if (stable) presentation.captureSceneBaseline();
+        auto& compositor = FrameCompositor::get();
+        if (stable) compositor.prepareLocalFrame(this, real);
+        else compositor.invalidate();
     }
 };
 
 class $modify(SpoutLayoutEGLView, cocos2d::CCEGLView) {
     static void onModify(auto& self) {
-        // HackMega renders its overlay in the same presentation hook. A named
-        // relative priority is stable even if HackMega changes its raw number.
+        // A named relative priority makes the final capture run after HackMega's
+        // presentation hook even if HackMega changes its raw priority number.
         if (!self.setHookPriorityAfterPre(
             "cocos2d::CCEGLView::swapBuffers", "absolllute.hackmega"
         )) {
@@ -214,26 +207,13 @@ class $modify(SpoutLayoutEGLView, cocos2d::CCEGLView) {
     }
 
     void swapBuffers() {
-        // The first render is untouched Geometry Dash, including all menus,
-        // pause UI, HUD/mod overlays, decoration, camera state and shaders.
-        SpoutSender::get().sendDefaultFramebuffer();
-
-        // Replace only the local backbuffer while gameplay is active. The real
-        // scene remains authoritative and is restored before the actual swap.
+        // No clear, scene visit or default-framebuffer write is permitted here.
+        // The prepared frame is matched to the current scene/layer generation;
+        // transitions and stale frames fail closed to the ordinary GD image.
         auto* director = cocos2d::CCDirector::get();
         auto* real = PlayLayer::get();
-        auto& layout = LayoutMirror::get();
-        auto& presentation = PresentationOverlay::get();
-        auto const stable = isPresentationGateOpen(director, real);
-        presentation.setGameplayActive(stable);
-        if (stable) {
-            // Save the fully presented frame too. After the Layout redraw, a
-            // GPU difference pass restores only HackMega/late-overlay pixels;
-            // OBS keeps the untouched full frame captured above.
-            auto const replayPresentation = presentation.capturePresentedFrame();
-            auto const rendered = layout.renderPlayerView(director, real);
-            if (rendered && replayPresentation) presentation.replayDifference();
-            else presentation.discardFrame();
+        if (!FrameCompositor::get().sendPreparedSpoutFrame(director, real)) {
+            SpoutSender::get().sendDefaultFramebuffer();
         }
 
         CCEGLView::swapBuffers();

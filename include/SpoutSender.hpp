@@ -11,6 +11,8 @@ class SpoutSender final {
 public:
     static SpoutSender& get();
     bool sendDefaultFramebuffer();
+    bool sendFramebuffer(unsigned int framebuffer, unsigned int width, unsigned int height);
+    bool sendTexture(unsigned int texture, unsigned int width, unsigned int height);
     void shutdown();
     bool ready() const;
 
@@ -21,6 +23,8 @@ private:
     SpoutSender& operator=(SpoutSender const&) = delete;
 
     bool ensureLoaded();
+    bool prepareSend();
+    bool finishSend(bool sent);
     void refreshName();
     void forceGpuTextureSharing();
 

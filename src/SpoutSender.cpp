@@ -4,6 +4,7 @@
 
 #ifdef GEODE_IS_WINDOWS
 #include <windows.h>
+#include <Geode/cocos/platform/CCGL.h>
 #endif
 
 using namespace geode::prelude;
@@ -113,7 +114,7 @@ void SpoutSender::refreshName() {
 #endif
 }
 
-bool SpoutSender::sendDefaultFramebuffer() {
+bool SpoutSender::prepareSend() {
 #ifndef GEODE_IS_WINDOWS
     return false;
 #else
@@ -121,10 +122,68 @@ bool SpoutSender::sendDefaultFramebuffer() {
     if (!ensureLoaded()) return false;
     forceGpuTextureSharing();
     refreshName();
+    return true;
+#endif
+}
+
+bool SpoutSender::sendDefaultFramebuffer() {
+#ifndef GEODE_IS_WINDOWS
+    return false;
+#else
+    if (!prepareSend()) return false;
 
     // Official SpoutLibrary default-framebuffer path: zero FBO, width and height.
     auto invert = Mod::get()->getSettingValue<bool>("invert-spout");
-    auto sent = m_spout->SendFbo(0, 0, 0, invert);
+    return finishSend(m_spout->SendFbo(0, 0, 0, invert));
+#endif
+}
+
+bool SpoutSender::sendFramebuffer(
+    unsigned int framebuffer,
+    unsigned int width,
+    unsigned int height
+) {
+#ifndef GEODE_IS_WINDOWS
+    (void)framebuffer;
+    (void)width;
+    (void)height;
+    return false;
+#else
+    if (!framebuffer || !width || !height || !prepareSend()) return false;
+    auto invert = Mod::get()->getSettingValue<bool>("invert-spout");
+    return finishSend(m_spout->SendFbo(framebuffer, width, height, invert));
+#endif
+}
+
+bool SpoutSender::sendTexture(
+    unsigned int texture,
+    unsigned int width,
+    unsigned int height
+) {
+#ifndef GEODE_IS_WINDOWS
+    (void)texture;
+    (void)width;
+    (void)height;
+    return false;
+#else
+    if (!texture || !width || !height || !prepareSend()) return false;
+    auto invert = Mod::get()->getSettingValue<bool>("invert-spout");
+    return finishSend(m_spout->SendTexture(
+        texture,
+        GL_TEXTURE_2D,
+        width,
+        height,
+        invert,
+        0
+    ));
+#endif
+}
+
+bool SpoutSender::finishSend(bool sent) {
+#ifndef GEODE_IS_WINDOWS
+    (void)sent;
+    return false;
+#else
 
     if (!sent) {
         ++m_sendFailures;

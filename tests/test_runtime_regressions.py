@@ -12,7 +12,7 @@ class RuntimeRegressionTests(unittest.TestCase):
         cls.spout = (ROOT / "src/SpoutSender.cpp").read_text(encoding="utf-8")
         cls.main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
         cls.layout = (ROOT / "src/LayoutMirror.cpp").read_text(encoding="utf-8")
-        cls.overlay = (ROOT / "src/PresentationOverlay.cpp").read_text(encoding="utf-8")
+        cls.compositor = (ROOT / "src/FrameCompositor.cpp").read_text(encoding="utf-8")
         cls.header = (ROOT / "include/LayoutMirror.hpp").read_text(encoding="utf-8")
 
     def test_spout_forces_texture_mode_before_sending(self):
@@ -26,6 +26,9 @@ class RuntimeRegressionTests(unittest.TestCase):
             self.assertIn(call, self.spout)
         self.assertLess(self.spout.index("forceGpuTextureSharing();"), self.spout.index("refreshName();"))
         self.assertIn("SendFbo(0, 0, 0, invert)", self.spout)
+        self.assertIn("SendFbo(framebuffer, width, height, invert)", self.spout)
+        self.assertIn("m_spout->SendTexture(", self.spout)
+        self.assertIn("GL_TEXTURE_2D", self.spout)
 
     def test_cpu_mode_does_not_destroy_sender(self):
         cpu_block = re.search(r"if \(m_spout->GetCPU\(\)\) \{([\s\S]*?)\n    \}", self.spout)
@@ -195,7 +198,10 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("restoreOpacity", self.layout)
 
     def test_local_layout_mutations_are_restored_same_frame(self):
-        self.assertRegex(self.layout, r"beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);")
+        self.assertRegex(
+            self.layout,
+            r"renderPlayerViewToFramebuffer[\s\S]*beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
+        )
         self.assertIn("SavedVisualState", self.header)
 
     def test_shader_pass_is_bypassed_only_during_layout_rerender(self):
@@ -206,23 +212,40 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertNotIn("cocos2d::CCLayer::visit()", self.main)
         self.assertIn("ShaderLayer::visit();", self.main)
 
-    def test_spout_capture_precedes_layout_rerender(self):
-        self.assertRegex(
-            self.main,
-            r"sendDefaultFramebuffer\(\);[\s\S]*renderPlayerView\(director, real\);[\s\S]*CCEGLView::swapBuffers\(\)",
-        )
+    def test_layout_render_happens_in_drawscene_not_swapbuffers(self):
+        draw = self.main[self.main.index("void drawScene()") : self.main.index("class $modify(SpoutLayoutEGLView")]
+        swap = self.main[self.main.index("void swapBuffers()") :]
+        self.assertLess(draw.index("CCDirector::drawScene();"), draw.index("prepareLocalFrame(this, real)"))
+        self.assertIn("sendPreparedSpoutFrame(director, real)", swap)
+        for forbidden in ("renderPlayerView", "scene->visit", "glClear(", "drawFullscreen"):
+            self.assertNotIn(forbidden, swap)
+        self.assertLess(swap.index("sendPreparedSpoutFrame"), swap.index("CCEGLView::swapBuffers();"))
 
     def test_hackmega_overlay_is_preserved_on_both_outputs(self):
         self.assertIn("setHookPriorityAfterPre", self.main)
         self.assertIn('"absolllute.hackmega"', self.main)
-        self.assertLess(self.main.index("setHookPriorityAfterPre"), self.main.index("sendDefaultFramebuffer();"))
-        self.assertIn("captureSceneBaseline", self.main)
-        self.assertIn("capturePresentedFrame", self.main)
-        self.assertIn("replayDifference", self.main)
-        self.assertIn("glCopyTexSubImage2D", self.overlay)
-        self.assertIn("presentedPixel.rgb - scenePixel.rgb", self.overlay)
-        self.assertNotIn("delta.a", self.overlay)
-        self.assertNotIn("glReadPixels", self.overlay)
+        self.assertIn("captureDefaultTo(m_decoratedTexture)", self.compositor)
+        self.assertIn("captureDefaultTo(m_presentedTexture)", self.compositor)
+        self.assertIn("presentedPixel.rgb - baselinePixel.rgb", self.compositor)
+        self.assertNotIn("delta.a", self.compositor)
+        self.assertNotIn("glReadPixels", self.compositor)
+
+    def test_compositor_owns_isolated_gpu_targets(self):
+        for token in (
+            "m_decoratedTexture",
+            "m_layoutTexture",
+            "m_presentedTexture",
+            "m_spoutTexture",
+            "m_layoutFramebuffer",
+            "m_spoutFramebuffer",
+            "GL_DEPTH_STENCIL_ATTACHMENT",
+            "m_readyGeneration != m_generation",
+            "m_frameScene != director->getRunningScene()",
+            "m_frameLayer != real",
+        ):
+            self.assertIn(token, self.compositor + self.header)
+        self.assertIn("sendFramebuffer(m_spoutFramebuffer", self.compositor)
+        self.assertIn("sendTexture(m_decoratedTexture", self.compositor)
 
     def test_transition_scenes_are_never_rerendered(self):
         self.assertIn("isStableGameplayScene", self.main + self.layout + self.header)
@@ -235,11 +258,11 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("willSwitchToScene", self.main)
         self.assertRegex(
             self.main,
-            r"advancePresentationGate\(this, real\);[\s\S]*setGameplayActive\(stable\);[\s\S]*if \(stable\) presentation\.captureSceneBaseline\(\);",
+            r"advancePresentationGate\(this, real\);[\s\S]*if \(stable\) compositor\.prepareLocalFrame\(this, real\);[\s\S]*else compositor\.invalidate\(\);",
         )
-        self.assertIn("PresentationOverlay::get().setGameplayActive(false);", self.main)
+        self.assertGreaterEqual(self.main.count("FrameCompositor::get().invalidate();"), 2)
 
-    def test_overlay_replay_restores_vertex_attribute_state(self):
+    def test_compositor_restores_vertex_attribute_state(self):
         for token in (
             "GL_VERTEX_ATTRIB_ARRAY_ENABLED",
             "GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING",
@@ -247,22 +270,23 @@ class RuntimeRegressionTests(unittest.TestCase):
             "restoreAttrib(kCCVertexAttrib_Position",
             "restoreAttrib(kCCVertexAttrib_TexCoords",
         ):
-            self.assertIn(token, self.overlay)
-        self.assertNotIn("ccGLEnableVertexAttribs", self.overlay)
+            self.assertIn(token, self.compositor)
+        self.assertNotIn("ccGLEnableVertexAttribs", self.compositor)
 
-    def test_local_redraw_never_clears_a_foreign_framebuffer(self):
+    def test_layout_redraw_only_clears_its_private_framebuffer(self):
         render = re.search(
-            r"bool LayoutMirror::renderPlayerView\(CCDirector\* director, PlayLayer\* real\) \{([\s\S]*?)\n\}",
+            r"bool LayoutMirror::renderPlayerViewToFramebuffer\([\s\S]*?\) \{([\s\S]*?)\n\}",
             self.layout,
         ).group(1)
-        self.assertLess(render.index("GL_FRAMEBUFFER_BINDING"), render.index("glClear("))
-        self.assertIn("if (framebuffer != 0)", render)
+        self.assertLess(render.index("previousFramebuffer != 0"), render.index("glClear("))
+        self.assertLess(render.index("glBindFramebuffer(GL_FRAMEBUFFER, framebuffer)"), render.index("glClear("))
+        self.assertIn("glCheckFramebufferStatus(GL_FRAMEBUFFER)", render)
 
     def test_local_redraw_keeps_cocos_projection_setup(self):
-        self.assertIn("director->setViewport();", self.layout)
         self.assertIn("director->setProjection(director->getProjection());", self.layout)
         self.assertNotIn("glStencilMask(~0u)", self.layout)
-        self.assertNotIn("glBindFramebuffer(GL_FRAMEBUFFER, 0)", self.layout)
+        self.assertIn("previousViewport", self.layout)
+        self.assertIn("previousClearColor", self.layout)
 
 
 if __name__ == "__main__":

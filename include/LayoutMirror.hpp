@@ -23,7 +23,13 @@ public:
     void finishFor(PlayLayer* real);
     void destroyFor(PlayLayer* real);
     bool isStableGameplayScene(cocos2d::CCDirector* director, PlayLayer* real) const;
-    bool renderPlayerView(cocos2d::CCDirector* director, PlayLayer* real);
+    bool renderPlayerViewToFramebuffer(
+        cocos2d::CCDirector* director,
+        PlayLayer* real,
+        unsigned int framebuffer,
+        int width,
+        int height
+    );
     NodeVisitAction beginNodeVisit(cocos2d::CCNode* node);
     void endNodeVisit(cocos2d::CCNode* node);
 
@@ -133,5 +139,4 @@ private:
     bool m_spatialIndexReady = false;
     bool m_renderMapReady = false;
     bool m_renderingLayout = false;
-    bool m_reportedFramebufferSkip = false;
 };

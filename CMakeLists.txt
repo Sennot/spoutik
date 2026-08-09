@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SpoutLayoutCapture VERSION 0.2.5 LANGUAGES CXX)
+project(SpoutLayoutCapture VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,8 +22,8 @@ endif()
 
 add_library(${PROJECT_NAME} SHARED
     src/main.cpp
+    src/FrameCompositor.cpp
     src/LayoutMirror.cpp
-    src/PresentationOverlay.cpp
     src/SpoutSender.cpp
     vendor/xdbot/layout_mode.cpp
 )

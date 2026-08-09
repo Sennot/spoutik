@@ -10,15 +10,15 @@ Windows-only Geode mod targeting **Geometry Dash 2.2081 / Geode v5.8.2**.
 
 ## Render path
 
-The capture is placed at the presentation boundary rather than on individual HUD nodes:
+The two outputs are isolated on the GPU rather than redrawing into the window during presentation:
 
 1. Geometry Dash performs its ordinary frame render once.
-2. A `cocos2d::CCEGLView::swapBuffers()` **pre-hook** at `Priority::Last` runs immediately before the real backbuffer swap.
-3. The current default OpenGL framebuffer is sent to Spout with `SendFbo(0, 0, 0, ...)`.
-4. Only after the send, the local backbuffer is cleared and redrawn with the stripped Layout mirror plus the authoritative real HUD / scene overlays.
-5. The original `swapBuffers()` presents that Layout frame to the player.
+2. Inside the `CCDirector::drawScene` hook, that decorated result is copied to a GPU texture. The same authoritative scene is then visited with the XDBot mask into a private color/depth/stencil FBO.
+3. The completed Layout texture is blitted to the window backbuffer before HackMega's late UI draws, so the player's window contains Layout plus an interactive `absolllute.hackmega` overlay.
+4. At `CCEGLView::swapBuffers`, the final local presentation is copied to another GPU texture. An RGB-only difference against the Layout baseline is composed over the saved decorated texture into a second private FBO.
+5. Spout receives that composed decorated FBO with `SendFbo(fbo, width, height, ...)`, and the original `swapBuffers()` presents the already-finished local frame.
 
-This is deliberately later than a `CCDirector::drawScene` hook, so normal post-draw work has already happened before Spout sees the frame. Geode hook ordering is cooperative: another mod can still explicitly request an even later dependency order or use raw/native hooks outside Geode, so no mod can guarantee absolute last position against hostile/custom ordering.
+`swapBuffers` never clears the default framebuffer and never visits a Cocos scene. Every prepared frame is tagged with its exact scene, `PlayLayer` and generation; transitions, teardown, changed viewports and stale frames fail closed to ordinary full-game Spout capture. Geode hook ordering is cooperative, so a native hook outside Geode can still bypass relative ordering guarantees.
 
 ## Full XDBot Layout Mode integration
 
@@ -71,7 +71,8 @@ The sender path intentionally has no CPU frame extraction:
 - no screenshots;
 - no software encoder;
 - no per-frame CPU pixel buffer;
-- Spout uses its documented default-FBO path `SendFbo(0, 0, 0, ...)`;
+- decorated, Layout, final-presentation and composed-Spout pixels stay in four reusable GPU textures;
+- gameplay uses Spout's documented nonzero-FBO path `SendFbo(fbo, width, height, ...)`; menus/transitions use `SendFbo(0, 0, 0, ...)` as the safe fallback;
 - after sender initialization, the mod rejects only `GetCPU() == true`, which is Spout's actual sender sharing-method flag;
 - `GetGLDX()` is logged only as legacy NVIDIA `NV_DX_interop2` compatibility information; `false` is **not** treated as CPU fallback;
 - Release + LTO is enabled in GitHub Actions.
@@ -122,7 +123,7 @@ Add an OBS **Spout2 Capture** source and select sender **Geometry Dash Full** (o
 
 The frame sent to Spout is intentionally captured from the already-rendered default framebuffer, so UI/HUD mods generally do not need explicit support.
 
-Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. v0.2.2 applies those decisions at the actual Cocos node visit boundary plus a stable viewport query over an immutable spatial index for batched and originally invisible sprites, without scanning the full level. v0.2.5 explicitly rejects `CCTransitionScene`, pending scene switches and the first two stable draws, so transition framebuffers are never cleared or revisited, while retaining Cocos' normal viewport/projection setup for the extra visit. The shader z-range is drawn from its raw object layer instead of replaying the decorated shader texture. Spout captures the final untouched presentation after `absolllute.hackmega`; a GPU RGB-only baseline/difference pass then replays only late overlay pixels over the local Layout redraw so HackMega remains visible and interactive in the game window too.
+Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. v0.2.2 applies those decisions at the actual Cocos node visit boundary plus a stable viewport query over an immutable spatial index for batched and originally invisible sprites, without scanning the full level. v0.3.0 keeps the v0.2.5 transition guards but moves the extra visit into a private FBO during `drawScene`; `swapBuffers` is now scene-free and cannot expose retained menu/transition frames or clear the window blue. The shader z-range is drawn from its raw object layer instead of replaying the decorated shader texture. A GPU RGB-only difference preserves HackMega's late overlay locally while Spout receives the decorated frame with the same late overlay pixels.
 
 ## Credits / licensing
 

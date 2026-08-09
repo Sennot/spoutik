@@ -11,6 +11,7 @@
 #ifdef GEODE_IS_WINDOWS
 #include <Geode/cocos/platform/CCGL.h>
 #include <Geode/cocos/layers_scenes_transitions_nodes/CCTransition.h>
+#include <Geode/cocos/shaders/ccGLStateCache.h>
 #endif
 
 using namespace geode::prelude;
@@ -185,7 +186,6 @@ void LayoutMirror::clear() {
     m_spatialIndexReady = false;
     m_renderMapReady = false;
     m_renderingLayout = false;
-    m_reportedFramebufferSkip = false;
 }
 
 void LayoutMirror::prepareFor(PlayLayer* real, GJGameLevel* level) {
@@ -830,55 +830,87 @@ bool LayoutMirror::isStableGameplayScene(CCDirector* director, PlayLayer* real) 
 #endif
 
     // CCTransitionScene renders retained input/output scenes through its own
-    // textures and timing. Re-visiting it at swap time repeats the transition:
-    // on entry that leaks the level card/menu, and on exit it can leave only
-    // the transition clear color. A stable PlayLayer belongs to the director's
+    // textures and timing. A stable PlayLayer belongs to the director's
     // running scene itself; during either transition its root is a different
-    // retained CCScene.
+    // retained CCScene. This is checked again immediately before both the
+    // isolated render and its matching Spout composition.
     cocos2d::CCNode* root = real;
     while (root->getParent()) root = root->getParent();
     return root == scene;
 }
 
-bool LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
+bool LayoutMirror::renderPlayerViewToFramebuffer(
+    CCDirector* director,
+    PlayLayer* real,
+    unsigned int framebuffer,
+    int width,
+    int height
+) {
 #ifndef GEODE_IS_WINDOWS
     (void)director;
     (void)real;
+    (void)framebuffer;
+    (void)width;
+    (void)height;
     return false;
 #else
-    if (!isStableGameplayScene(director, real)) return false;
-    auto* scene = director->getRunningScene();
-
-    GLint framebuffer = 0;
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
-    if (framebuffer != 0) {
-        if (!m_reportedFramebufferSkip) {
-            m_reportedFramebufferSkip = true;
-            log::warn(
-                "Layout redraw skipped safely: presentation framebuffer is {}, not default FBO 0",
-                framebuffer
-            );
-        }
+    if (!isStableGameplayScene(director, real) || !framebuffer || width <= 0 || height <= 0) {
         return false;
     }
+    auto* scene = director->getRunningScene();
 
+    GLint previousFramebuffer = 0;
+    GLint previousViewport[4] {};
+    GLfloat previousClearColor[4] {};
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    glGetIntegerv(GL_VIEWPORT, previousViewport);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClearColor);
+    auto const scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+
+    // The isolated pass is initiated only after the ordinary scene finished on
+    // the window backbuffer. Never redirect a foreign mod/render-texture FBO.
+    if (previousFramebuffer != 0) return false;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+        return false;
+    }
+    glViewport(0, 0, width, height);
     beginLayoutPass(director, real);
 
     glDisable(GL_SCISSOR_TEST);
     glClearColor(0.f, 0.f, 0.f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-    director->setViewport();
     director->setProjection(director->getProjection());
 
-    // Render the SAME authoritative scene a second time. Physics, camera,
-    // practice checkpoints, StartPos, music time and mod HUD therefore remain
-    // the real game state. ShaderLayer::visit is bypassed only for this pass.
+    // Render the SAME authoritative scene into our private target. Physics,
+    // camera, practice checkpoints, StartPos, music time and mod HUD therefore
+    // remain the real game state. ShaderLayer::visit is bypassed only here.
     scene->visit();
     if (auto* notification = director->getNotificationNode(); notification && notification->isVisible()) {
         notification->visit();
     }
 
     endLayoutPass();
+
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+    glViewport(
+        previousViewport[0],
+        previousViewport[1],
+        previousViewport[2],
+        previousViewport[3]
+    );
+    glClearColor(
+        previousClearColor[0],
+        previousClearColor[1],
+        previousClearColor[2],
+        previousClearColor[3]
+    );
+    if (scissorEnabled) glEnable(GL_SCISSOR_TEST);
+    else glDisable(GL_SCISSOR_TEST);
+    director->setProjection(director->getProjection());
+    ccGLInvalidateStateCache();
     return true;
 #endif
 }

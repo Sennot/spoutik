@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.0
+
+- Rebuilt dual-view presentation around two private FBOs and four reusable GPU textures. The Layout scene visit now happens during `CCDirector::drawScene`, never inside `CCEGLView::swapBuffers`.
+- Made `swapBuffers` read/compose/send-only: it never clears or writes the window backbuffer and never revisits a scene, eliminating retained menu-card glitches, transition hallucinations and blue exit frames by construction.
+- Added strict scene, `PlayLayer`, viewport and frame-generation matching. Transitions, teardown and stale prepared frames fail closed to ordinary default-framebuffer Spout capture.
+- Preserved `absolllute.hackmega` on the local Layout output and the decorated Spout output using a GPU RGB-only late-overlay difference composed into a dedicated Spout FBO.
+- Added direct Spout nonzero-FBO and texture sending paths while retaining default-FBO capture for menus and defensive fallback; no CPU pixel readback was introduced.
+
 ## v0.2.5
 
 - Fixed the v0.2.4 level-entry hang: removed the aggressive depth/stencil mask and framebuffer recovery changes that ran immediately before/after the second Cocos scene visit.

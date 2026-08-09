@@ -10,9 +10,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
 layout = (ROOT / "src/LayoutMirror.cpp").read_text(encoding="utf-8")
 spout = (ROOT / "src/SpoutSender.cpp").read_text(encoding="utf-8")
-overlay = (ROOT / "src/PresentationOverlay.cpp").read_text(encoding="utf-8")
+compositor = (ROOT / "src/FrameCompositor.cpp").read_text(encoding="utf-8")
 mod = json.loads((ROOT / "mod.json").read_text(encoding="utf-8"))
-blob = main + "\n" + layout + "\n" + overlay + "\n" + spout
+blob = main + "\n" + layout + "\n" + compositor + "\n" + spout
 
 checks = {
     "PlayLayer::init": r"bool init\(GJGameLevel\* level, bool useReplay, bool dontCreateObjects\)",
@@ -20,7 +20,8 @@ checks = {
     "PlayLayer::onQuit": r"void onQuit\(\)",
     "ShaderLayer::visit": r"void visit\(\)[\s\S]*isRenderingLayout\(\)[\s\S]*m_inShaderObjectLayer[\s\S]*rawLayer->visit\(\)",
     "CCEGLView::swapBuffers": r"void swapBuffers\(\)",
-    "capture before local redraw": r"sendDefaultFramebuffer\(\);[\s\S]*renderPlayerView\(director, real\);[\s\S]*CCEGLView::swapBuffers\(\)",
+    "isolated layout render in drawScene": r"CCDirector::drawScene\(\);[\s\S]*prepareLocalFrame\(this, real\)",
+    "offscreen Spout composition before swap": r"sendPreparedSpoutFrame\(director, real\)[\s\S]*CCEGLView::swapBuffers\(\)",
     "XDBot full transform used": r"LayoutMode::getModifiedString\(std::string\(level->m_levelString\)\)",
     "XDBot serialized plan": r"canonicalWithoutHidden[\s\S]*m_pendingByObjectID",
     "authoritative object binding": r"PlayLayer::addObject\(object\);\s*LayoutMirror::get\(\)\.observeObject\(this, object\);",
@@ -31,16 +32,18 @@ checks = {
     "separate layout opacity": r"observeOpacity\(this, opacity\)[\s\S]*setSpriteOpacity\(object, entry\.layoutOpacity\)",
     "XDBot actual object colors": r"m_isObjectBlack \? kLayoutBlack[\s\S]*m_isColorSpriteBlack \? kLayoutBlack[\s\S]*sprite->setColor\(target\)",
     "HackMega relative capture order": r"setHookPriorityAfterPre\([\s\S]*cocos2d::CCEGLView::swapBuffers[\s\S]*absolllute\.hackmega",
-    "HackMega local overlay replay": r"captureSceneBaseline[\s\S]*capturePresentedFrame[\s\S]*replayDifference[\s\S]*glCopyTexSubImage2D",
+    "HackMega dual-output composition": r"presentedPixel\.rgb - baselinePixel\.rgb[\s\S]*captureDefaultTo\(m_decoratedTexture\)[\s\S]*captureDefaultTo\(m_presentedTexture\)",
     "stable-scene transition guard": r"isStableGameplayScene[\s\S]*typeinfo_cast<cocos2d::CCTransitionScene\*>\(scene\)[\s\S]*getNextScene\(\)[\s\S]*while \(root->getParent\(\)\)[\s\S]*return root == scene",
     "stable draw gate": r"kStableDrawsBeforeLayout = 3[\s\S]*advancePresentationGate[\s\S]*willSwitchToScene",
-    "overlay GL attribute restoration": r"glGetVertexAttribPointerv[\s\S]*restoreAttrib\(kCCVertexAttrib_Position[\s\S]*restoreAttrib\(kCCVertexAttrib_TexCoords",
-    "overlay RGB-only difference": r"presentedPixel\.rgb - scenePixel\.rgb",
-    "foreign framebuffer clear guard": r"GL_FRAMEBUFFER_BINDING[\s\S]*if \(framebuffer != 0\)[\s\S]*glClear\(",
-    "Cocos projection before local visit": r"setViewport\(\);[\s\S]*setProjection\(director->getProjection\(\)\);[\s\S]*scene->visit\(\)",
+    "compositor GL attribute restoration": r"glGetVertexAttribPointerv[\s\S]*restoreAttrib\(kCCVertexAttrib_Position[\s\S]*restoreAttrib\(kCCVertexAttrib_TexCoords",
+    "compositor RGB-only difference": r"presentedPixel\.rgb - baselinePixel\.rgb",
+    "private framebuffer clear guard": r"previousFramebuffer != 0[\s\S]*glBindFramebuffer\(GL_FRAMEBUFFER, framebuffer\)[\s\S]*glClear\(",
+    "Cocos projection before isolated visit": r"glBindFramebuffer\(GL_FRAMEBUFFER, framebuffer\)[\s\S]*setProjection\(director->getProjection\(\)\);[\s\S]*scene->visit\(\)",
     "XDBot full special palette": r"kBackgroundChannel[\s\S]*kGround1Channel[\s\S]*kGround2Channel[\s\S]*kLineChannel[\s\S]*kMG1Channel[\s\S]*kMG2Channel[\s\S]*splitView\(newColors, '\|'\)",
     "layout state restored": r"beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
-    "Spout default FBO": r"SendFbo\(0, 0, 0, invert\)",
+    "Spout default FBO fallback": r"SendFbo\(0, 0, 0, invert\)",
+    "Spout composed FBO": r"SendFbo\(framebuffer, width, height, invert\)",
+    "Spout decorated texture fallback": r"SendTexture\([\s\S]*GL_TEXTURE_2D",
     "Spout force texture": r"SetShareMode\(0\)",
     "Spout CPU mode off": r"SetCPUmode\(false\)",
     "Spout memory mode off": r"SetMemoryShareMode\(false\)",
@@ -69,7 +72,7 @@ for forbidden_hook in [
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
-if mod.get("version") != "v0.2.5": failed.append("mod version v0.2.5")
+if mod.get("version") != "v0.3.0": failed.append("mod version v0.3.0")
 
 resources = mod.get("resources", {}).get("files", [])
 for required in [
