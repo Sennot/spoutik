@@ -152,7 +152,7 @@ bool PresentationOverlay::ensureProgram() {
     program->addAttribute(kCCAttributeNamePosition, kCCVertexAttrib_Position);
     program->addAttribute(kCCAttributeNameTexCoord, kCCVertexAttrib_TexCoords);
     if (!program->link()) {
-        log::error("Presentation overlay shader link failed: {}", program->getProgramLog());
+        log::error("Presentation overlay shader link failed");
         program->release();
         return false;
     }
