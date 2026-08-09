@@ -27,6 +27,7 @@ private:
     bool ensureTargets(int width, int height);
     bool ensureProgram();
     bool captureDefaultTo(unsigned int texture);
+    bool blitLayoutToDefault();
     bool drawFullscreen(
         unsigned int targetFramebuffer,
         int viewportX,
@@ -63,5 +64,6 @@ private:
     bool m_frameReady = false;
     bool m_statusLogged = false;
     bool m_failureLogged = false;
+    unsigned int m_traceFramesRemaining = 3;
 #endif
 };

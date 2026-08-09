@@ -909,7 +909,6 @@ bool LayoutMirror::renderPlayerViewToFramebuffer(
     );
     if (scissorEnabled) glEnable(GL_SCISSOR_TEST);
     else glDisable(GL_SCISSOR_TEST);
-    director->setProjection(director->getProjection());
     ccGLInvalidateStateCache();
     return true;
 #endif

@@ -221,6 +221,15 @@ class RuntimeRegressionTests(unittest.TestCase):
             self.assertNotIn(forbidden, swap)
         self.assertLess(swap.index("sendPreparedSpoutFrame"), swap.index("CCEGLView::swapBuffers();"))
 
+    def test_layout_window_copy_uses_native_fbo_blit(self):
+        self.assertIn("bool FrameCompositor::blitLayoutToDefault()", self.compositor)
+        self.assertIn("glBlitFramebuffer(", self.compositor)
+        self.assertIn("glBindFramebuffer(GL_READ_FRAMEBUFFER, m_layoutFramebuffer)", self.compositor)
+        self.assertIn("glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0)", self.compositor)
+        prepare = self.compositor[self.compositor.index("bool FrameCompositor::prepareLocalFrame") :]
+        self.assertIn("blitLayoutToDefault()", prepare)
+        self.assertNotIn("drawFullscreen(\n        0,", prepare)
+
     def test_hackmega_overlay_is_preserved_on_both_outputs(self):
         self.assertIn("setHookPriorityAfterPre", self.main)
         self.assertIn('"absolllute.hackmega"', self.main)
@@ -287,6 +296,8 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertNotIn("glStencilMask(~0u)", self.layout)
         self.assertIn("previousViewport", self.layout)
         self.assertIn("previousClearColor", self.layout)
+        render = self.layout[self.layout.index("bool LayoutMirror::renderPlayerViewToFramebuffer") :]
+        self.assertEqual(render.count("director->setProjection(director->getProjection());"), 1)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.1
+
+- Fixed a first-gameplay-frame heap-corruption crash detected immediately after the isolated Layout visit.
+- Replaced the post-visit shader/vertex-attribute copy into the game window with a native framebuffer blit and removed the redundant post-visit projection reset.
+- Added bounded stage diagnostics for the first three prepared frames so any remaining failure identifies its exact capture, visit, blit, composition or send boundary.
+
 ## v0.3.0
 
 - Rebuilt dual-view presentation around two private FBOs and four reusable GPU textures. The Layout scene visit now happens during `CCDirector::drawScene`, never inside `CCEGLView::swapBuffers`.

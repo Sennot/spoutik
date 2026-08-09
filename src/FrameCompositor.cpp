@@ -288,6 +288,44 @@ bool FrameCompositor::captureDefaultTo(unsigned int texture) {
     return true;
 }
 
+bool FrameCompositor::blitLayoutToDefault() {
+    if (!m_layoutFramebuffer || m_width <= 0 || m_height <= 0) return false;
+
+    GLint oldReadFramebuffer = 0;
+    GLint oldDrawFramebuffer = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &oldReadFramebuffer);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &oldDrawFramebuffer);
+    if (oldDrawFramebuffer != 0) return false;
+
+    // This is the only gameplay write to the window backbuffer. A native FBO
+    // blit avoids compiling a shader or touching Cocos vertex attributes in
+    // the fragile interval immediately after the isolated second scene visit.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_layoutFramebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(
+        0,
+        0,
+        m_width,
+        m_height,
+        m_viewX,
+        m_viewY,
+        m_viewX + m_width,
+        m_viewY + m_height,
+        GL_COLOR_BUFFER_BIT,
+        GL_NEAREST
+    );
+    glBindFramebuffer(
+        GL_READ_FRAMEBUFFER,
+        static_cast<GLuint>(oldReadFramebuffer)
+    );
+    glBindFramebuffer(
+        GL_DRAW_FRAMEBUFFER,
+        static_cast<GLuint>(oldDrawFramebuffer)
+    );
+    ccGLInvalidateStateCache();
+    return true;
+}
+
 bool FrameCompositor::drawFullscreen(
     unsigned int targetFramebuffer,
     int viewportX,
@@ -408,18 +446,28 @@ bool FrameCompositor::prepareLocalFrame(CCDirector* director, PlayLayer* real) {
     m_viewX = viewport[0];
     m_viewY = viewport[1];
     ++m_generation;
+    auto const trace = m_traceFramesRemaining > 0;
+    if (trace) {
+        log::info(
+            "Dual-frame trace {}: targets ready (viewport {},{} {}x{})",
+            m_generation,
+            m_viewX,
+            m_viewY,
+            m_width,
+            m_height
+        );
+    }
 
     if (!captureDefaultTo(m_decoratedTexture)) return false;
+    if (trace) log::info("Dual-frame trace {}: decorated capture complete", m_generation);
     if (!LayoutMirror::get().renderPlayerViewToFramebuffer(
         director, real, m_layoutFramebuffer, m_width, m_height
     )) {
         return false;
     }
-    if (!drawFullscreen(
-        0, m_viewX, m_viewY, m_width, m_height, 0, m_layoutTexture
-    )) {
-        return false;
-    }
+    if (trace) log::info("Dual-frame trace {}: isolated Layout visit complete", m_generation);
+    if (!blitLayoutToDefault()) return false;
+    if (trace) log::info("Dual-frame trace {}: native Layout blit complete", m_generation);
 
     m_frameScene = director->getRunningScene();
     m_frameLayer = real;
@@ -435,6 +483,7 @@ bool FrameCompositor::prepareLocalFrame(CCDirector* director, PlayLayer* real) {
             m_spoutFramebuffer
         );
     }
+    if (trace) log::info("Dual-frame trace {}: prepared", m_generation);
     return true;
 #endif
 }
@@ -455,11 +504,16 @@ bool FrameCompositor::sendPreparedSpoutFrame(CCDirector* director, PlayLayer* re
     }
 
     m_frameReady = false;
+    auto const trace = m_traceFramesRemaining > 0;
+    if (trace) log::info("Dual-frame trace {}: swap capture begin", m_generation);
     if (!captureDefaultTo(m_presentedTexture)) {
+        if (trace) log::warn("Dual-frame trace {}: swap capture unavailable", m_generation);
         SpoutSender::get().sendTexture(m_decoratedTexture, m_width, m_height);
+        if (m_traceFramesRemaining) --m_traceFramesRemaining;
         invalidate();
         return true;
     }
+    if (trace) log::info("Dual-frame trace {}: swap capture complete", m_generation);
 
     auto const composed = drawFullscreen(
         m_spoutFramebuffer,
@@ -473,11 +527,14 @@ bool FrameCompositor::sendPreparedSpoutFrame(CCDirector* director, PlayLayer* re
         m_presentedTexture
     );
     if (composed) {
+        if (trace) log::info("Dual-frame trace {}: Spout composition complete", m_generation);
         SpoutSender::get().sendFramebuffer(m_spoutFramebuffer, m_width, m_height);
     }
     else {
         SpoutSender::get().sendTexture(m_decoratedTexture, m_width, m_height);
     }
+    if (trace) log::info("Dual-frame trace {}: send returned", m_generation);
+    if (m_traceFramesRemaining) --m_traceFramesRemaining;
     invalidate();
     return true;
 #endif
