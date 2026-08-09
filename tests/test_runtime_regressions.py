@@ -12,6 +12,7 @@ class RuntimeRegressionTests(unittest.TestCase):
         cls.spout = (ROOT / "src/SpoutSender.cpp").read_text(encoding="utf-8")
         cls.main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
         cls.layout = (ROOT / "src/LayoutMirror.cpp").read_text(encoding="utf-8")
+        cls.overlay = (ROOT / "src/PresentationOverlay.cpp").read_text(encoding="utf-8")
         cls.header = (ROOT / "include/LayoutMirror.hpp").read_text(encoding="utf-8")
 
     def test_spout_forces_texture_mode_before_sending(self):
@@ -124,14 +125,14 @@ class RuntimeRegressionTests(unittest.TestCase):
         )
         self.assertIsNotNone(begin)
         self.assertIn("m_renderNodes.find(node)", begin.group(1))
-        self.assertIn("Layout adaptive mask active", self.layout)
+        self.assertIn("Layout stable mask frame", self.layout)
         camera = re.search(
-            r"void LayoutMirror::applyCameraOverrides\(PlayLayer\* real\) \{([\s\S]*?)\n\}",
+            r"void LayoutMirror::applyCameraOverrides\(CCDirector\* director, PlayLayer\* real\) \{([\s\S]*?)\n\}",
             self.layout,
         ).group(1)
         self.assertNotRegex(camera, r"for \(auto const& entry : m_entries\)")
 
-    def test_batched_objects_use_adaptive_camera_candidates(self):
+    def test_batched_objects_use_stable_spatial_camera_candidates(self):
         self.assertIn('#include <Geode/modify/GameObject.hpp>', self.main)
         self.assertNotIn('"GameObject::setVisible"', self.main)
         self.assertNotIn("observeVisibility", self.main + self.layout + self.header)
@@ -143,7 +144,7 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("getBatchNode()", batch.group(1))
         self.assertIn("entry.keep", batch.group(1))
         camera = re.search(
-            r"void LayoutMirror::applyCameraOverrides\(PlayLayer\* real\) \{([\s\S]*?)\n\}",
+            r"void LayoutMirror::applyCameraOverrides\(CCDirector\* director, PlayLayer\* real\) \{([\s\S]*?)\n\}",
             self.layout,
         ).group(1)
         for token in (
@@ -153,11 +154,16 @@ class RuntimeRegressionTests(unittest.TestCase):
             "m_visibleObjectsCount",
             "m_visibleObjects2",
             "m_visibleObjects2Count",
+            "convertToNodeSpace",
+            "std::lower_bound",
+            "m_spatialEntries",
+            "m_frameSpatialCandidateCount",
             "m_nonEffectObjects",
-            "m_frameRetainedCandidateCount < 64",
             "m_sections",
         ):
             self.assertIn(token, camera)
+        self.assertIn("m_spatialIndexReady", self.header)
+        self.assertIn("Stable layout spatial index ready", self.layout)
 
     def test_xdbot_opacity_has_separate_layout_state(self):
         self.assertIn("unsigned char layoutOpacity", self.header)
@@ -189,7 +195,7 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("restoreOpacity", self.layout)
 
     def test_local_layout_mutations_are_restored_same_frame(self):
-        self.assertRegex(self.layout, r"beginLayoutPass\(real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);")
+        self.assertRegex(self.layout, r"beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);")
         self.assertIn("SavedVisualState", self.header)
 
     def test_shader_pass_is_bypassed_only_during_layout_rerender(self):
@@ -206,10 +212,16 @@ class RuntimeRegressionTests(unittest.TestCase):
             r"sendDefaultFramebuffer\(\);[\s\S]*renderPlayerView\(director, real\);[\s\S]*CCEGLView::swapBuffers\(\)",
         )
 
-    def test_spout_capture_is_ordered_after_hackmega_overlay(self):
+    def test_hackmega_overlay_is_preserved_on_both_outputs(self):
         self.assertIn("setHookPriorityAfterPre", self.main)
         self.assertIn('"absolllute.hackmega"', self.main)
         self.assertLess(self.main.index("setHookPriorityAfterPre"), self.main.index("sendDefaultFramebuffer();"))
+        self.assertIn("captureSceneBaseline", self.main)
+        self.assertIn("capturePresentedFrame", self.main)
+        self.assertIn("replayDifference", self.main)
+        self.assertIn("glCopyTexSubImage2D", self.overlay)
+        self.assertIn("presentedPixel - scenePixel", self.overlay)
+        self.assertNotIn("glReadPixels", self.overlay)
 
 
 if __name__ == "__main__":

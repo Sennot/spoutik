@@ -1,5 +1,6 @@
 #pragma once
 #include <Geode/Geode.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -42,6 +43,12 @@ private:
         std::uint64_t touchedSerial = 0;
     };
 
+    struct SpatialEntry {
+        float x = 0.f;
+        float y = 0.f;
+        std::size_t entryIndex = 0;
+    };
+
     struct SavedVisualState {
         cocos2d::CCNode* node = nullptr;
         cocos2d::CCSprite* sprite = nullptr;
@@ -78,11 +85,11 @@ private:
 
     void clear();
     void buildLayoutPlan(GJGameLevel* level);
-    void beginLayoutPass(PlayLayer* real);
+    void beginLayoutPass(cocos2d::CCDirector* director, PlayLayer* real);
     void endLayoutPass();
     void restoreLayoutOverrides();
     void registerRenderNodes(LayoutEntry const& entry);
-    void applyCameraOverrides(PlayLayer* real);
+    void applyCameraOverrides(cocos2d::CCDirector* director, PlayLayer* real);
     void touchCameraEntry(LayoutEntry& entry);
     void applyScenePalette(PlayLayer* real);
     void saveAndColorSceneSprite(cocos2d::CCSprite* sprite, cocos2d::ccColor3B color);
@@ -90,6 +97,8 @@ private:
     PlayLayer* m_real = nullptr;
     std::string m_modifiedString;
     std::vector<LayoutEntry> m_entries;
+    std::vector<SpatialEntry> m_spatialEntries;
+    std::vector<std::size_t> m_spatialOverflow;
     std::unordered_map<GameObject*, std::size_t> m_entryIndex;
     std::unordered_map<cocos2d::CCNode*, RenderNodeEntry> m_renderNodes;
     std::unordered_map<int, std::deque<PendingRecord>> m_pendingByObjectID;
@@ -109,9 +118,18 @@ private:
     std::size_t m_frameSuppressedNodeCount = 0;
     std::size_t m_frameCandidateObjectCount = 0;
     std::size_t m_frameRetainedCandidateCount = 0;
+    std::size_t m_frameCompactCandidateCount = 0;
+    std::size_t m_frameSpatialCandidateCount = 0;
+    std::size_t m_frameFallbackCandidateCount = 0;
     std::size_t m_frameForcedVisibleCount = 0;
     std::size_t m_frameBatchedMutationCount = 0;
+    float m_frameViewportLeft = 0.f;
+    float m_frameViewportRight = 0.f;
+    float m_frameViewportBottom = 0.f;
+    float m_frameViewportTop = 0.f;
+    bool m_frameViewportValid = false;
     bool m_reportedRenderCoverage = false;
+    bool m_spatialIndexReady = false;
     bool m_renderMapReady = false;
     bool m_renderingLayout = false;
 };

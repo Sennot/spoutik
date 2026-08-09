@@ -10,8 +10,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
 layout = (ROOT / "src/LayoutMirror.cpp").read_text(encoding="utf-8")
 spout = (ROOT / "src/SpoutSender.cpp").read_text(encoding="utf-8")
+overlay = (ROOT / "src/PresentationOverlay.cpp").read_text(encoding="utf-8")
 mod = json.loads((ROOT / "mod.json").read_text(encoding="utf-8"))
-blob = main + "\n" + layout + "\n" + spout
+blob = main + "\n" + layout + "\n" + overlay + "\n" + spout
 
 checks = {
     "PlayLayer::init": r"bool init\(GJGameLevel\* level, bool useReplay, bool dontCreateObjects\)",
@@ -25,13 +26,14 @@ checks = {
     "authoritative object binding": r"PlayLayer::addObject\(object\);\s*LayoutMirror::get\(\)\.observeObject\(this, object\);",
     "actual render-node index": r"registerRenderNodes[\s\S]*m_renderNodes\.find\(node\)",
     "CCNode visit mask": r"beginNodeVisit\(this\)[\s\S]*NodeVisitAction::Skip\) return;[\s\S]*CCNode::visit\(\)[\s\S]*endNodeVisit\(this\)",
-    "adaptive camera mask": r"applyCameraOverrides[\s\S]*m_nonEffectObjects[\s\S]*m_frameRetainedCandidateCount",
+    "stable spatial camera mask": r"applyCameraOverrides[\s\S]*convertToNodeSpace[\s\S]*std::lower_bound[\s\S]*m_spatialEntries",
     "batched camera mutations": r"touchCameraEntry[\s\S]*getBatchNode\(\)",
     "separate layout opacity": r"observeOpacity\(this, opacity\)[\s\S]*setSpriteOpacity\(object, entry\.layoutOpacity\)",
     "XDBot actual object colors": r"m_isObjectBlack \? kLayoutBlack[\s\S]*m_isColorSpriteBlack \? kLayoutBlack[\s\S]*sprite->setColor\(target\)",
     "HackMega relative capture order": r"setHookPriorityAfterPre\([\s\S]*cocos2d::CCEGLView::swapBuffers[\s\S]*absolllute\.hackmega",
+    "HackMega local overlay replay": r"captureSceneBaseline[\s\S]*capturePresentedFrame[\s\S]*replayDifference[\s\S]*glCopyTexSubImage2D",
     "XDBot full special palette": r"kBackgroundChannel[\s\S]*kGround1Channel[\s\S]*kGround2Channel[\s\S]*kLineChannel[\s\S]*kMG1Channel[\s\S]*kMG2Channel[\s\S]*splitView\(newColors, '\|'\)",
-    "layout state restored": r"beginLayoutPass\(real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
+    "layout state restored": r"beginLayoutPass\(director, real\);[\s\S]*scene->visit\(\);[\s\S]*endLayoutPass\(\);",
     "Spout default FBO": r"SendFbo\(0, 0, 0, invert\)",
     "Spout force texture": r"SetShareMode\(0\)",
     "Spout CPU mode off": r"SetCPUmode\(false\)",
@@ -61,7 +63,7 @@ for forbidden_hook in [
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
-if mod.get("version") != "v0.2.1": failed.append("mod version v0.2.1")
+if mod.get("version") != "v0.2.2": failed.append("mod version v0.2.2")
 
 resources = mod.get("resources", {}).get("files", [])
 for required in [

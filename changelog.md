@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.2
+
+- Fixed HackMega's global interface being erased inside levels. A GPU-only baseline/difference replay preserves presentation pixels drawn by HackMega and other late overlays over the local Layout pass while Spout still receives the complete original framebuffer.
+- Replaced late-populating Geometry Dash camera grids as the primary batch-mask source with a stable X-sorted spatial index queried through the authoritative object-layer camera transform. Removed decoration is now suppressed from the first local frame instead of leaking in as GD's transient visibility arrays fill.
+- Kept the compact engine vectors for moving/effect objects and the section grids only as a defensive fallback, preserving performance independently of total level object count.
+- Added first-frame and settled-frame diagnostics containing compact/spatial/fallback candidate counts and exact world viewport bounds.
+
 ## v0.2.1
 
 - Restored structures on fully invisible levels by keeping XDBot's own visible/opaque post-add state separately from the decorated object's camera-culling state, then applying it only to current camera candidates.

@@ -2,9 +2,11 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/ShaderLayer.hpp>
 #include <Geode/modify/CCEGLView.hpp>
+#include <Geode/modify/CCDirector.hpp>
 #include <Geode/modify/CCNode.hpp>
 #include <Geode/modify/GameObject.hpp>
 #include "LayoutMirror.hpp"
+#include "PresentationOverlay.hpp"
 #include "SpoutSender.hpp"
 
 using namespace geode::prelude;
@@ -117,6 +119,30 @@ class $modify(SpoutLayoutNode, cocos2d::CCNode) {
     }
 };
 
+class $modify(SpoutLayoutDirector, cocos2d::CCDirector) {
+    static void onModify(auto& self) {
+        // HackMega draws its global CoreDirector UI after the ordinary scene.
+        // Running inside its drawScene hook captures the pristine decorated
+        // scene first; the final presentation is captured at swapBuffers.
+        if (!self.setHookPriorityAfterPre(
+            "cocos2d::CCDirector::drawScene", "absolllute.hackmega"
+        )) {
+            log::warn("Could not order the presentation baseline inside absolllute.hackmega");
+            if (!self.setHookPriorityPre("cocos2d::CCDirector::drawScene", Priority::Last)) {
+                log::warn("Could not set CCDirector::drawScene baseline fallback priority");
+            }
+        }
+    }
+
+    void drawScene() {
+        CCDirector::drawScene();
+        if (PlayLayer::get() && Mod::get()->getSettingValue<bool>("enabled") &&
+            Mod::get()->getSettingValue<bool>("layout-player-view")) {
+            PresentationOverlay::get().captureSceneBaseline();
+        }
+    }
+};
+
 class $modify(SpoutLayoutEGLView, cocos2d::CCEGLView) {
     static void onModify(auto& self) {
         // HackMega renders its overlay in the same presentation hook. A named
@@ -140,7 +166,15 @@ class $modify(SpoutLayoutEGLView, cocos2d::CCEGLView) {
         // scene remains authoritative and is restored before the actual swap.
         auto* director = cocos2d::CCDirector::get();
         auto* real = PlayLayer::get();
-        if (director && real) LayoutMirror::get().renderPlayerView(director, real);
+        if (director && real) {
+            // Save the fully presented frame too. After the Layout redraw, a
+            // GPU difference pass restores only HackMega/late-overlay pixels;
+            // OBS keeps the untouched full frame captured above.
+            auto const replayPresentation =
+                PresentationOverlay::get().capturePresentedFrame();
+            LayoutMirror::get().renderPlayerView(director, real);
+            if (replayPresentation) PresentationOverlay::get().replayDifference();
+        }
 
         CCEGLView::swapBuffers();
     }

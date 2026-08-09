@@ -25,6 +25,7 @@ for label, pattern in {
     "PlayLayer::onQuit": r"void onQuit\(\)",
     "ShaderLayer::visit": r"class ShaderLayer[\s\S]*?virtual void visit\(\)",
     "GJBaseGameLayer::m_inShaderObjectLayer": r"cocos2d::CCLayer\* m_inShaderObjectLayer;",
+    "GJBaseGameLayer::m_objectLayer": r"cocos2d::CCLayer\* m_objectLayer;",
     "GJBaseGameLayer::m_sections": r"gd::vector<gd::vector<gd::vector<GameObject\*>\*>\*> m_sections;",
     "GJBaseGameLayer::m_nonEffectObjects": r"gd::vector<gd::vector<gd::vector<GameObject\*>\*>\*> m_nonEffectObjects;",
     "GJBaseGameLayer::m_calcNonEffectObjects": r"gd::vector<GameObject\*> m_calcNonEffectObjects;",
@@ -63,7 +64,10 @@ for label, pattern in {
     "CCEGLView::swapBuffers": r"virtual void swapBuffers\(\)",
     "CCDirector::setViewport": r"void setViewport\(\)",
     "CCDirector::setProjection": r"void setProjection\(cocos2d::ccDirectorProjection\)",
+    "CCDirector::drawScene": r"void drawScene\(\)",
+    "CCDirector::getWinSize": r"cocos2d::CCSize getWinSize\(\)",
     "CCDirector::getNotificationNode": r"cocos2d::CCNode\* getNotificationNode\(\)",
+    "CCNode::convertToNodeSpace": r"cocos2d::CCPoint convertToNodeSpace\(cocos2d::CCPoint const&\)",
 }.items():
     require(cocos, label, pattern)
 

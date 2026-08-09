@@ -2,7 +2,10 @@
 #include "layout_mode.hpp"
 #include <Geode/loader/Mod.hpp>
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <string_view>
 
 #ifdef GEODE_IS_WINDOWS
@@ -146,6 +149,8 @@ void LayoutMirror::clear() {
     m_real = nullptr;
     m_modifiedString.clear();
     m_entries.clear();
+    m_spatialEntries.clear();
+    m_spatialOverflow.clear();
     m_entryIndex.clear();
     m_renderNodes.clear();
     m_pendingByObjectID.clear();
@@ -165,9 +170,18 @@ void LayoutMirror::clear() {
     m_frameSuppressedNodeCount = 0;
     m_frameCandidateObjectCount = 0;
     m_frameRetainedCandidateCount = 0;
+    m_frameCompactCandidateCount = 0;
+    m_frameSpatialCandidateCount = 0;
+    m_frameFallbackCandidateCount = 0;
     m_frameForcedVisibleCount = 0;
     m_frameBatchedMutationCount = 0;
+    m_frameViewportLeft = 0.f;
+    m_frameViewportRight = 0.f;
+    m_frameViewportBottom = 0.f;
+    m_frameViewportTop = 0.f;
+    m_frameViewportValid = false;
     m_reportedRenderCoverage = false;
+    m_spatialIndexReady = false;
     m_renderMapReady = false;
     m_renderingLayout = false;
 }
@@ -274,7 +288,13 @@ void LayoutMirror::observeObject(PlayLayer* real, GameObject* object) {
     auto const layoutOpacity = static_cast<unsigned char>(forceHidden ? 0 : 255);
     m_entries.push_back({ object, keep, forceHidden, layoutOpacity, 0 });
     m_entryIndex.insert_or_assign(object, index);
-    if (m_renderMapReady) registerRenderNodes(m_entries.back());
+    if (m_renderMapReady) {
+        registerRenderNodes(m_entries.back());
+        // Objects created after PlayLayer::init are rare and usually moving.
+        // Keep them in a tiny overflow instead of inserting into a 100k-entry
+        // sorted vector and shifting it during gameplay.
+        if (m_spatialIndexReady) m_spatialOverflow.push_back(index);
+    }
 }
 
 void LayoutMirror::observeOpacity(GameObject* object, unsigned char opacity) {
@@ -322,7 +342,38 @@ void LayoutMirror::finishFor(PlayLayer* real) {
     m_renderNodes.clear();
     m_renderNodes.reserve(m_entries.size() * 3);
     for (auto const& entry : m_entries) registerRenderNodes(entry);
+
+    // The engine's current-frame camera arrays are deliberately transient:
+    // on several levels they contain only one or two objects during the first
+    // visible frames, then admit decoration later. Build an immutable X-sorted
+    // lookup once so the same local viewport is masked from frame one onward.
+    m_spatialEntries.clear();
+    m_spatialEntries.reserve(m_entries.size());
+    for (std::size_t index = 0; index < m_entries.size(); ++index) {
+        auto* object = m_entries[index].object;
+        if (!object) continue;
+        auto const position = object->getPosition();
+        if (!std::isfinite(position.x) || !std::isfinite(position.y)) continue;
+        m_spatialEntries.push_back({ position.x, position.y, index });
+    }
+    std::sort(
+        m_spatialEntries.begin(), m_spatialEntries.end(),
+        [](SpatialEntry const& left, SpatialEntry const& right) {
+            if (left.x != right.x) return left.x < right.x;
+            return left.y < right.y;
+        }
+    );
+    m_spatialIndexReady = true;
     m_renderMapReady = true;
+
+    if (!m_spatialEntries.empty()) {
+        log::info(
+            "Stable layout spatial index ready: {} objects, X {:.1f}..{:.1f}",
+            m_spatialEntries.size(),
+            m_spatialEntries.front().x,
+            m_spatialEntries.back().x
+        );
+    }
 }
 
 void LayoutMirror::destroyFor(PlayLayer* real) {
@@ -500,31 +551,116 @@ void LayoutMirror::touchCameraEntry(LayoutEntry& entry) {
     suppressBatchedSprite(object->m_glowSprite);
 }
 
-void LayoutMirror::applyCameraOverrides(PlayLayer* real) {
-    if (!real || real != m_real) return;
+void LayoutMirror::applyCameraOverrides(CCDirector* director, PlayLayer* real) {
+    if (!director || !real || real != m_real) return;
     ++m_frameSerial;
     if (m_frameSerial == 0) ++m_frameSerial;
 
-    auto touchObject = [&](GameObject* object) {
+    auto touchEntry = [&](std::size_t index, std::size_t& sourceCount) {
+        if (index >= m_entries.size()) return;
+        auto& entry = m_entries[index];
+        if (!entry.object || entry.touchedSerial == m_frameSerial) return;
+        ++sourceCount;
+        touchCameraEntry(entry);
+    };
+
+    auto touchObject = [&](GameObject* object, std::size_t& sourceCount) {
         if (!object) return;
         auto found = m_entryIndex.find(object);
         if (found == m_entryIndex.end()) return;
-        touchCameraEntry(m_entries[found->second]);
+        touchEntry(found->second, sourceCount);
     };
 
-    auto touchVector = [&](auto const& objects, int activeCount) {
+    auto touchVector = [&](auto const& objects, int activeCount, std::size_t& sourceCount) {
         auto limit = objects.size();
         if (activeCount >= 0) {
             limit = std::min(limit, static_cast<std::size_t>(activeCount));
         }
-        for (std::size_t i = 0; i < limit; ++i) touchObject(objects[i]);
+        for (std::size_t i = 0; i < limit; ++i) touchObject(objects[i], sourceCount);
     };
 
-    // GD already calculates these compact vectors for the current frame.
-    // Together they cover moving/effect objects without a full-level scan.
-    touchVector(real->m_calcNonEffectObjects, real->m_calcNonEffectObjectsSize);
-    touchVector(real->m_visibleObjects, real->m_visibleObjectsCount);
-    touchVector(real->m_visibleObjects2, real->m_visibleObjects2Count);
+    // Keep GD's compact vectors for moving/effect objects, but do not trust
+    // them as the sole mask: some levels populate them several frames late.
+    touchVector(
+        real->m_calcNonEffectObjects,
+        real->m_calcNonEffectObjectsSize,
+        m_frameCompactCandidateCount
+    );
+    touchVector(
+        real->m_visibleObjects,
+        real->m_visibleObjectsCount,
+        m_frameCompactCandidateCount
+    );
+    touchVector(
+        real->m_visibleObjects2,
+        real->m_visibleObjects2Count,
+        m_frameCompactCandidateCount
+    );
+
+    // Convert all four logical screen corners through the real camera/object
+    // transform. Querying our immutable X-sorted index makes removed batch
+    // sprites deterministic from the first frame, independently of GD culling.
+    if (m_spatialIndexReady && real->m_objectLayer) {
+        auto const size = director->getWinSize();
+        std::array<CCPoint, 4> const screenCorners {{
+            { 0.f, 0.f },
+            { size.width, 0.f },
+            { 0.f, size.height },
+            { size.width, size.height },
+        }};
+
+        auto left = std::numeric_limits<float>::infinity();
+        auto right = -std::numeric_limits<float>::infinity();
+        auto bottom = std::numeric_limits<float>::infinity();
+        auto top = -std::numeric_limits<float>::infinity();
+        for (auto const& screen : screenCorners) {
+            auto const world = real->m_objectLayer->convertToNodeSpace(screen);
+            left = std::min(left, world.x);
+            right = std::max(right, world.x);
+            bottom = std::min(bottom, world.y);
+            top = std::max(top, world.y);
+        }
+
+        auto const width = right - left;
+        auto const height = top - bottom;
+        m_frameViewportValid =
+            std::isfinite(left) && std::isfinite(right) &&
+            std::isfinite(bottom) && std::isfinite(top) &&
+            width > 1.f && height > 1.f && width < 100000.f && height < 100000.f;
+
+        if (m_frameViewportValid) {
+            // Overscan handles large sprites and objects whose visual bounds
+            // extend beyond their origin, while remaining independent of total
+            // level size. Moving objects are additionally covered above.
+            auto const marginX = std::max(240.f, width * 0.75f);
+            auto const marginY = std::max(180.f, height * 0.75f);
+            m_frameViewportLeft = left - marginX;
+            m_frameViewportRight = right + marginX;
+            m_frameViewportBottom = bottom - marginY;
+            m_frameViewportTop = top + marginY;
+
+            auto first = std::lower_bound(
+                m_spatialEntries.begin(), m_spatialEntries.end(), m_frameViewportLeft,
+                [](SpatialEntry const& entry, float value) { return entry.x < value; }
+            );
+            for (auto it = first;
+                 it != m_spatialEntries.end() && it->x <= m_frameViewportRight;
+                 ++it) {
+                if (it->y < m_frameViewportBottom || it->y > m_frameViewportTop) continue;
+                touchEntry(it->entryIndex, m_frameSpatialCandidateCount);
+            }
+
+            for (auto index : m_spatialOverflow) {
+                if (index >= m_entries.size() || !m_entries[index].object) continue;
+                auto const position = m_entries[index].object->getPosition();
+                if (position.x < m_frameViewportLeft || position.x > m_frameViewportRight ||
+                    position.y < m_frameViewportBottom || position.y > m_frameViewportTop) {
+                    continue;
+                }
+                touchEntry(index, m_frameSpatialCandidateCount);
+            }
+        }
+    }
 
     auto touchSectionGrid = [&](auto const& grid) {
         if (grid.empty()) return;
@@ -542,19 +678,18 @@ void LayoutMirror::applyCameraOverrides(PlayLayer* real) {
             for (auto sectionY = bottom; sectionY <= top; ++sectionY) {
                 auto* objects = (*column)[static_cast<std::size_t>(sectionY)];
                 if (!objects) continue;
-                for (auto* object : *objects) touchObject(object);
+                for (auto* object : *objects) touchObject(object, m_frameFallbackCandidateCount);
             }
         }
     };
 
-    // Ordinary retained structures live here even when the decorated world
-    // marks them invisible. This single grid is the normal completeness path.
-    touchSectionGrid(real->m_nonEffectObjects);
-
-    // Fully invisible/atypical levels may classify their structures in the
-    // general grid only. Pay for that second grid only when GD's compact sets
-    // and non-effect grid produced suspiciously few candidates.
-    if (m_frameRetainedCandidateCount < 64) touchSectionGrid(real->m_sections);
+    // Defensive binding fallback for an unexpected camera transform. It is
+    // normally cold; unlike the old implementation, late-changing section
+    // indices are no longer the primary source of local layout decisions.
+    if (!m_frameViewportValid || m_frameCandidateObjectCount < 16) {
+        touchSectionGrid(real->m_nonEffectObjects);
+        touchSectionGrid(real->m_sections);
+    }
 }
 
 void LayoutMirror::saveAndColorSceneSprite(CCSprite* sprite, ccColor3B color) {
@@ -600,8 +735,8 @@ void LayoutMirror::applyScenePalette(PlayLayer* real) {
     }
 }
 
-void LayoutMirror::beginLayoutPass(PlayLayer* real) {
-    if (!real || real != m_real) return;
+void LayoutMirror::beginLayoutPass(CCDirector* director, PlayLayer* real) {
+    if (!director || !real || real != m_real) return;
     m_savedStates.clear();
     m_frameNodeProbeCount = 0;
     m_frameMappedNodeCount = 0;
@@ -609,23 +744,41 @@ void LayoutMirror::beginLayoutPass(PlayLayer* real) {
     m_frameSuppressedNodeCount = 0;
     m_frameCandidateObjectCount = 0;
     m_frameRetainedCandidateCount = 0;
+    m_frameCompactCandidateCount = 0;
+    m_frameSpatialCandidateCount = 0;
+    m_frameFallbackCandidateCount = 0;
     m_frameForcedVisibleCount = 0;
     m_frameBatchedMutationCount = 0;
+    m_frameViewportLeft = 0.f;
+    m_frameViewportRight = 0.f;
+    m_frameViewportBottom = 0.f;
+    m_frameViewportTop = 0.f;
+    m_frameViewportValid = false;
     m_renderingLayout = true;
     applyScenePalette(real);
-    applyCameraOverrides(real);
+    applyCameraOverrides(director, real);
 }
 
 void LayoutMirror::endLayoutPass() {
     restoreLayoutOverrides();
     m_renderingLayout = false;
-    if (!m_reportedRenderCoverage) {
+    auto const reportFrame = !m_reportedRenderCoverage || m_frameSerial == 120;
+    if (reportFrame) {
         log::info(
-            "Layout adaptive mask active: {} camera candidates ({} retained), {} forced visible, {} batched mutations; {} scene nodes, {} mapped, {} styled, {} skipped; {} live objects",
+            "Layout stable mask frame {}: {} candidates ({} retained: {} compact + {} spatial + {} fallback), {} forced visible, {} batched mutations; viewport {} [{:.1f}..{:.1f}, {:.1f}..{:.1f}]; {} scene nodes, {} mapped, {} styled, {} skipped; {} live objects",
+            m_frameSerial,
             m_frameCandidateObjectCount,
             m_frameRetainedCandidateCount,
+            m_frameCompactCandidateCount,
+            m_frameSpatialCandidateCount,
+            m_frameFallbackCandidateCount,
             m_frameForcedVisibleCount,
             m_frameBatchedMutationCount,
+            m_frameViewportValid ? "valid" : "fallback",
+            m_frameViewportLeft,
+            m_frameViewportRight,
+            m_frameViewportBottom,
+            m_frameViewportTop,
             m_frameNodeProbeCount,
             m_frameMappedNodeCount,
             m_frameStyledNodeCount,
@@ -670,7 +823,7 @@ void LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
     auto* scene = director->getRunningScene();
     if (!scene) return;
 
-    beginLayoutPass(real);
+    beginLayoutPass(director, real);
 
     glDisable(GL_SCISSOR_TEST);
     glClearColor(0.f, 0.f, 0.f, 1.f);
