@@ -220,16 +220,22 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("capturePresentedFrame", self.main)
         self.assertIn("replayDifference", self.main)
         self.assertIn("glCopyTexSubImage2D", self.overlay)
-        self.assertIn("presentedPixel - scenePixel", self.overlay)
+        self.assertIn("presentedPixel.rgb - scenePixel.rgb", self.overlay)
+        self.assertNotIn("delta.a", self.overlay)
         self.assertNotIn("glReadPixels", self.overlay)
 
     def test_transition_scenes_are_never_rerendered(self):
         self.assertIn("isStableGameplayScene", self.main + self.layout + self.header)
         self.assertIn("while (root->getParent())", self.layout)
         self.assertIn("return root == scene", self.layout)
+        self.assertIn("typeinfo_cast<cocos2d::CCTransitionScene*>(scene)", self.layout)
+        self.assertIn("director->getNextScene()", self.layout)
+        self.assertIn("kStableDrawsBeforeLayout = 3", self.main)
+        self.assertIn("advancePresentationGate", self.main)
+        self.assertIn("willSwitchToScene", self.main)
         self.assertRegex(
             self.main,
-            r"isStableGameplayScene\(this, real\);[\s\S]*setGameplayActive\(stable\);[\s\S]*if \(stable\) presentation\.captureSceneBaseline\(\);",
+            r"advancePresentationGate\(this, real\);[\s\S]*setGameplayActive\(stable\);[\s\S]*if \(stable\) presentation\.captureSceneBaseline\(\);",
         )
         self.assertIn("PresentationOverlay::get().setGameplayActive(false);", self.main)
 
@@ -251,6 +257,19 @@ class RuntimeRegressionTests(unittest.TestCase):
         ).group(1)
         self.assertLess(render.index("GL_FRAMEBUFFER_BINDING"), render.index("glClear("))
         self.assertIn("if (framebuffer != 0)", render)
+
+    def test_local_redraw_restores_explicit_gl_state(self):
+        for token in (
+            "GL_COLOR_CLEAR_VALUE",
+            "GL_SCISSOR_BOX",
+            "GL_COLOR_WRITEMASK",
+            "GL_DEPTH_WRITEMASK",
+            "GL_STENCIL_WRITEMASK",
+            "glBindFramebuffer(GL_FRAMEBUFFER, 0)",
+            "ccGLInvalidateStateCache()",
+        ):
+            self.assertIn(token, self.layout)
+        self.assertNotIn("director->setProjection", self.layout)
 
 
 if __name__ == "__main__":

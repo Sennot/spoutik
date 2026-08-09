@@ -134,4 +134,5 @@ private:
     bool m_renderMapReady = false;
     bool m_renderingLayout = false;
     bool m_reportedFramebufferSkip = false;
+    bool m_reportedFramebufferLeak = false;
 };

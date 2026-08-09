@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.4
+
+- Replaced the insufficient PlayLayer-root transition heuristic with an explicit `CCTransitionScene` type check, a pending-next-scene check, a `willSwitchToScene` invalidation hook, and a three-draw stable-scene gate.
+- Ignored framebuffer alpha-only differences when extracting MegaHack's late overlay. Presentation hooks that rewrite alpha can no longer replay the entire decorated frame over Layout as a false overlay.
+- Restored the clear color, viewport, scissor rectangle/state, color mask, depth mask and stencil mask after the extra local visit, and recovers the default FBO if a visited render node leaks its framebuffer.
+- Removed the redundant projection reset from the swap-time pass so transition rendering cannot inherit a modified Cocos matrix state.
+
 ## v0.2.3
 
 - Prevented the local Layout pass from revisiting `CCTransitionScene`: entering a level no longer flashes the retained level card/menu, and leaving gameplay no longer clears the transition into a full-screen blue frame.

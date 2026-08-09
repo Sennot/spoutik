@@ -11,6 +11,48 @@
 
 using namespace geode::prelude;
 
+namespace {
+    constexpr unsigned kStableDrawsBeforeLayout = 3;
+
+    struct PresentationGateState {
+        cocos2d::CCScene* scene = nullptr;
+        PlayLayer* layer = nullptr;
+        unsigned stableDraws = 0;
+    };
+
+    PresentationGateState s_presentationGate;
+
+    void resetPresentationGate() {
+        s_presentationGate = {};
+    }
+
+    bool advancePresentationGate(cocos2d::CCDirector* director, PlayLayer* real) {
+        if (!LayoutMirror::get().isStableGameplayScene(director, real)) {
+            resetPresentationGate();
+            return false;
+        }
+
+        auto* scene = director->getRunningScene();
+        if (s_presentationGate.scene != scene || s_presentationGate.layer != real) {
+            s_presentationGate = { scene, real, 1 };
+            return false;
+        }
+
+        if (s_presentationGate.stableDraws < kStableDrawsBeforeLayout) {
+            ++s_presentationGate.stableDraws;
+        }
+        return s_presentationGate.stableDraws >= kStableDrawsBeforeLayout;
+    }
+
+    bool isPresentationGateOpen(cocos2d::CCDirector* director, PlayLayer* real) {
+        return director && real &&
+            s_presentationGate.scene == director->getRunningScene() &&
+            s_presentationGate.layer == real &&
+            s_presentationGate.stableDraws >= kStableDrawsBeforeLayout &&
+            LayoutMirror::get().isStableGameplayScene(director, real);
+    }
+}
+
 // This mod deliberately has ONE gameplay world only.
 // The decorated authoritative PlayLayer is rendered normally and sent to Spout.
 // At swap time we temporarily apply the XDBot-derived visual mask, render that
@@ -49,6 +91,7 @@ class $modify(SpoutLayoutPlayLayer, PlayLayer) {
     }
 
     void onQuit() {
+        resetPresentationGate();
         PresentationOverlay::get().setGameplayActive(false);
         LayoutMirror::get().destroyFor(this);
         PlayLayer::onQuit();
@@ -133,12 +176,23 @@ class $modify(SpoutLayoutDirector, cocos2d::CCDirector) {
                 log::warn("Could not set CCDirector::drawScene baseline fallback priority");
             }
         }
+        if (!self.setHookPriorityPre(
+            "cocos2d::CCDirector::willSwitchToScene", Priority::First
+        )) {
+            log::warn("Could not set CCDirector::willSwitchToScene transition guard priority");
+        }
+    }
+
+    void willSwitchToScene(cocos2d::CCScene* scene) {
+        resetPresentationGate();
+        PresentationOverlay::get().setGameplayActive(false);
+        CCDirector::willSwitchToScene(scene);
     }
 
     void drawScene() {
         CCDirector::drawScene();
         auto* real = PlayLayer::get();
-        auto const stable = LayoutMirror::get().isStableGameplayScene(this, real);
+        auto const stable = advancePresentationGate(this, real);
         auto& presentation = PresentationOverlay::get();
         presentation.setGameplayActive(stable);
         if (stable) presentation.captureSceneBaseline();
@@ -170,7 +224,7 @@ class $modify(SpoutLayoutEGLView, cocos2d::CCEGLView) {
         auto* real = PlayLayer::get();
         auto& layout = LayoutMirror::get();
         auto& presentation = PresentationOverlay::get();
-        auto const stable = layout.isStableGameplayScene(director, real);
+        auto const stable = isPresentationGateOpen(director, real);
         presentation.setGameplayActive(stable);
         if (stable) {
             // Save the fully presented frame too. After the Layout redraw, a

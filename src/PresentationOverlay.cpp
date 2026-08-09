@@ -169,9 +169,9 @@ bool PresentationOverlay::ensureProgram() {
         void main() {
             vec4 scenePixel = texture2D(u_scene, v_texCoord);
             vec4 presentedPixel = texture2D(u_presented, v_texCoord);
-            vec4 delta = abs(presentedPixel - scenePixel);
-            if (max(max(delta.r, delta.g), max(delta.b, delta.a)) < 0.0019) discard;
-            gl_FragColor = presentedPixel;
+            vec3 delta = abs(presentedPixel.rgb - scenePixel.rgb);
+            if (max(delta.r, max(delta.g, delta.b)) < 0.0039) discard;
+            gl_FragColor = vec4(presentedPixel.rgb, 1.0);
         }
     )glsl";
 

@@ -5,7 +5,7 @@ Windows-only Geode mod targeting **Geometry Dash 2.2081 / Geode v5.8.2**.
 ## Result
 
 - **OBS / Spout2 Capture:** the normal Geometry Dash output — decorated level, camera effects, shaders, HUD, progress/CPS overlays, pause screens, editor, main menu and other mod UI that was actually drawn into the game framebuffer.
-- **Player's game window:** XDBot-style Layout Mode while a `PlayLayer` is in its stable gameplay scene; entry/exit transitions remain owned by Geometry Dash.
+- **Player's game window:** XDBot-style Layout Mode after three completed draws of a stable `PlayLayer` scene; entry/exit transitions remain entirely owned by Geometry Dash.
 - Outside gameplay, the game window is untouched and Spout behaves like full-game capture.
 
 ## Render path
@@ -122,7 +122,7 @@ Add an OBS **Spout2 Capture** source and select sender **Geometry Dash Full** (o
 
 The frame sent to Spout is intentionally captured from the already-rendered default framebuffer, so UI/HUD mods generally do not need explicit support.
 
-Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. v0.2.2 applies those decisions at the actual Cocos node visit boundary plus a stable viewport query over an immutable spatial index for batched and originally invisible sprites, without scanning the full level. v0.2.3 additionally gates the extra visit to a stable scene whose root actually owns the current `PlayLayer`, so `CCTransitionScene` is never cleared or revisited. The shader z-range is drawn from its raw object layer instead of replaying the decorated shader texture. Spout captures the final untouched presentation after `absolllute.hackmega`; a GPU baseline/difference pass then replays only late overlay pixels over the local Layout redraw so HackMega remains visible and interactive in the game window too.
+Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. v0.2.2 applies those decisions at the actual Cocos node visit boundary plus a stable viewport query over an immutable spatial index for batched and originally invisible sprites, without scanning the full level. v0.2.4 explicitly rejects `CCTransitionScene`, pending scene switches and the first two stable draws, so transition framebuffers are never cleared or revisited. The shader z-range is drawn from its raw object layer instead of replaying the decorated shader texture. Spout captures the final untouched presentation after `absolllute.hackmega`; a GPU RGB-only baseline/difference pass then replays only late overlay pixels over the local Layout redraw so HackMega remains visible and interactive in the game window too.
 
 ## Credits / licensing
 

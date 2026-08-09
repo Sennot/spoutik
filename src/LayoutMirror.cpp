@@ -9,7 +9,9 @@
 #include <string_view>
 
 #ifdef GEODE_IS_WINDOWS
-#include <GL/gl.h>
+#include <Geode/cocos/platform/CCGL.h>
+#include <Geode/cocos/shaders/ccGLStateCache.h>
+#include <Geode/cocos/layers_scenes_transitions_nodes/CCTransition.h>
 #endif
 
 using namespace geode::prelude;
@@ -185,6 +187,7 @@ void LayoutMirror::clear() {
     m_renderMapReady = false;
     m_renderingLayout = false;
     m_reportedFramebufferSkip = false;
+    m_reportedFramebufferLeak = false;
 }
 
 void LayoutMirror::prepareFor(PlayLayer* real, GJGameLevel* level) {
@@ -821,6 +824,13 @@ bool LayoutMirror::isStableGameplayScene(CCDirector* director, PlayLayer* real) 
     auto* scene = director->getRunningScene();
     if (!scene) return false;
 
+#ifdef GEODE_IS_WINDOWS
+    // Cocos can attach both the incoming and outgoing CCScene below a
+    // CCTransitionScene, so ancestry alone is not a transition test.
+    if (typeinfo_cast<cocos2d::CCTransitionScene*>(scene)) return false;
+    if (director->getNextScene()) return false;
+#endif
+
     // CCTransitionScene renders retained input/output scenes through its own
     // textures and timing. Re-visiting it at swap time repeats the transition:
     // on entry that leaks the level card/menu, and on exit it can leave only
@@ -854,13 +864,29 @@ bool LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
         return false;
     }
 
+    GLint savedViewport[4] {};
+    GLint savedScissorBox[4] {};
+    GLfloat savedClearColor[4] {};
+    GLboolean savedColorMask[4] {};
+    GLboolean savedDepthMask = GL_TRUE;
+    GLint savedStencilMask = 0;
+    glGetIntegerv(GL_VIEWPORT, savedViewport);
+    glGetIntegerv(GL_SCISSOR_BOX, savedScissorBox);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, savedClearColor);
+    glGetBooleanv(GL_COLOR_WRITEMASK, savedColorMask);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &savedDepthMask);
+    glGetIntegerv(GL_STENCIL_WRITEMASK, &savedStencilMask);
+    auto const savedScissor = glIsEnabled(GL_SCISSOR_TEST);
+
     beginLayoutPass(director, real);
 
     glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
+    glStencilMask(~0u);
     glClearColor(0.f, 0.f, 0.f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-    director->setViewport();
-    director->setProjection(director->getProjection());
+    glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
 
     // Render the SAME authoritative scene a second time. Physics, camera,
     // practice checkpoints, StartPos, music time and mod HUD therefore remain
@@ -871,6 +897,37 @@ bool LayoutMirror::renderPlayerView(CCDirector* director, PlayLayer* real) {
     }
 
     endLayoutPass();
+
+    GLint endingFramebuffer = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &endingFramebuffer);
+    if (endingFramebuffer != 0) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (!m_reportedFramebufferLeak) {
+            m_reportedFramebufferLeak = true;
+            log::warn(
+                "Layout redraw recovered leaked framebuffer {} before presentation",
+                endingFramebuffer
+            );
+        }
+    }
+    glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+    glScissor(
+        savedScissorBox[0], savedScissorBox[1],
+        savedScissorBox[2], savedScissorBox[3]
+    );
+    glClearColor(
+        savedClearColor[0], savedClearColor[1],
+        savedClearColor[2], savedClearColor[3]
+    );
+    glColorMask(
+        savedColorMask[0], savedColorMask[1],
+        savedColorMask[2], savedColorMask[3]
+    );
+    glDepthMask(savedDepthMask);
+    glStencilMask(static_cast<GLuint>(savedStencilMask));
+    if (savedScissor) glEnable(GL_SCISSOR_TEST);
+    else glDisable(GL_SCISSOR_TEST);
+    ccGLInvalidateStateCache();
     return true;
 #endif
 }
