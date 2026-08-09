@@ -29,7 +29,7 @@ class ModMetadataTests(unittest.TestCase):
 
     def test_companion_architecture_version_and_resources(self):
         mod = json.loads((ROOT / "mod.json").read_text(encoding="utf-8"))
-        self.assertEqual(mod["version"], "v0.4.0")
+        self.assertEqual(mod["version"], "v0.4.1")
         self.assertEqual(mod["name"], "Layout Companion Bridge")
         resources = mod["resources"]["files"]
         self.assertIn("resources/licenses/XDBotFork-CREDITS.txt", resources)

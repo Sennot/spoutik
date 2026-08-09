@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.1
+
+- Исправлен детерминированный crash `LayoutCompanion.exe` с `0xc0000005` сразу после подключения к bridge.
+- Read-only shared mapping больше не читается через записывающую инструкцию `LOCK CMPXCHG`; protocol sequence загружается безопасным aligned 64-bit volatile load с memory barriers.
+- Добавлен regression, запрещающий возвращение `InterlockedCompareExchange64` в read-only companion reader.
+
 ## v0.4.0
 
 - Полностью удалён нестабильный in-process dual-render: Spout sender, FBO compositor, hooks `CCEGLView::swapBuffers`, `ShaderLayer::visit`, глобальный `CCNode::visit`, повторный `scene->visit` и все временные изменения объектов.

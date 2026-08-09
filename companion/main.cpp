@@ -45,10 +45,7 @@ public:
 
     bool read(SharedFrame& destination) {
         if (!m_view && !connect()) return false;
-        auto* sequence = reinterpret_cast<volatile LONG64*>(&m_view->sequence);
-        auto const before = static_cast<std::uint64_t>(InterlockedCompareExchange64(
-            sequence, 0, 0
-        ));
+        auto const before = loadSequence();
         if ((before & 1u) != 0 || before == m_lastSequence) return false;
 
         MemoryBarrier();
@@ -57,9 +54,7 @@ public:
         std::memcpy(&destination, m_view, bytes);
         MemoryBarrier();
 
-        auto const after = static_cast<std::uint64_t>(InterlockedCompareExchange64(
-            sequence, 0, 0
-        ));
+        auto const after = loadSequence();
         if (before != after || (after & 1u) != 0) return false;
         if (destination.magic != kMagic ||
             destination.protocolVersion != kProtocolVersion ||
@@ -73,6 +68,21 @@ public:
     }
 
 private:
+    std::uint64_t loadSequence() const {
+        // The mapping is deliberately FILE_MAP_READ. InterlockedCompareExchange
+        // is NOT a read operation: LOCK CMPXCHG requests write access even when
+        // exchange and comparand are both zero, which caused the deterministic
+        // 0xc0000005 crash as soon as the viewer connected. On Windows x64 an
+        // aligned 64-bit volatile load is indivisible; the barriers around the
+        // payload copy provide the seqlock ordering we need.
+        auto const* sequence = reinterpret_cast<volatile std::uint64_t const*>(
+            &m_view->sequence
+        );
+        auto const value = *sequence;
+        MemoryBarrier();
+        return value;
+    }
+
     HANDLE m_handle = nullptr;
     SharedFrame* m_view = nullptr;
     std::uint64_t m_lastSequence = 0;

@@ -39,7 +39,7 @@ for required in (
 
 if mod.get("gd", {}).get("win") != "2.2081": failed.append("GD target 2.2081")
 if mod.get("geode") != "5.8.2": failed.append("Geode target 5.8.2")
-if mod.get("version") != "v0.4.0": failed.append("mod version v0.4.0")
+if mod.get("version") != "v0.4.1": failed.append("mod version v0.4.1")
 if len(mod.get("description", "")) > 45: failed.append("mod description <=45 chars")
 
 resources = mod.get("resources", {}).get("files", [])

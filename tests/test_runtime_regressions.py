@@ -84,10 +84,12 @@ class RuntimeRegressionTests(unittest.TestCase):
             "#include <SDL3/SDL.h>", "SDL_CreateWindow", "SDL_GL_CreateContext",
             "SDL_GL_SwapWindow", "glOrtho", "glBegin(GL_QUADS)",
             "OpenFileMappingW(FILE_MAP_READ", "MapViewOfFile(",
-            "InterlockedCompareExchange64", "--overlay", "--always-on-top",
+            "volatile std::uint64_t const", "--overlay", "--always-on-top",
         ):
             self.assertIn(token, self.viewer)
         self.assertNotIn("FILE_MAP_WRITE", self.viewer)
+        self.assertNotIn("InterlockedCompareExchange64", self.viewer)
+        self.assertIn("LOCK CMPXCHG requests write access", self.viewer)
 
     def test_transition_and_quit_suspend_bridge(self):
         self.assertGreaterEqual(self.main.count("CompanionBridge::get().suspend();"), 2)
