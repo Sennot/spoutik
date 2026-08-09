@@ -5,16 +5,14 @@ import hashlib
 import json
 import pathlib
 import re
-import tempfile
 import urllib.request
-import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CFG = json.loads((ROOT / "tools" / "deps.json").read_text(encoding="utf-8"))
 
 
 def fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "spout-layout-dualview-bootstrap/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "layout-companion-bootstrap/1"})
     with urllib.request.urlopen(req, timeout=60) as r:
         return r.read()
 
@@ -101,13 +99,7 @@ def transform_xdbot(raw_hpp: str, raw_cpp: str) -> tuple[str, str, str]:
 
 
 def validate_xdbot_addobject(raw_cpp: str) -> None:
-    """Prove our local visit mask preserves pinned XDBot render semantics.
-
-    v0.1.5 no longer creates a second PlayLayer; excluded/deco decisions come
-    from the exact getModifiedString output. v0.3.0 applies the visible result
-    at CCNode::visit instead of mutating gameplay fields every frame, so verify
-    the upstream block itself and the equivalent local draw decisions.
-    """
+    """Prove companion export preserves pinned XDBot visual decisions."""
     start_token = "obj->m_activeMainColorID = -1;"
     end_token = "obj->setVisible(obj->m_objectID != 2065);"
     start = raw_cpp.find(start_token)
@@ -118,18 +110,18 @@ def validate_xdbot_addobject(raw_cpp: str) -> None:
         raise RuntimeError("Upstream XDBot addObject visual block end not found")
     layout_cpp = (ROOT / "src" / "LayoutMirror.cpp").read_text(encoding="utf-8")
     required_local_semantics = (
-        "RenderNodeKind::Main",
-        "RenderNodeKind::Detail",
-        "RenderNodeKind::Suppress",
         "if (excludedTriggerIDs.contains(object->m_objectID)) keep = false",
-        "renderNode.owner->m_isObjectBlack ? kLayoutBlack : kLayoutWhite",
-        "renderNode.owner->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite",
-        "registerNode(object->m_glowSprite, RenderNodeKind::Suppress)",
-        "sprite->setColor(target)",
+        "if (!entry.keep || entry.forceHidden) return",
+        "entry.object->m_isObjectBlack ? kLayoutBlack : kLayoutWhite",
+        "entry.object->m_isColorSpriteBlack ? kLayoutBlack : kLayoutWhite",
+        "appendNode(",
+        "entry.object->m_colorSprite",
+        "QuadKind::ObjectMain",
+        "QuadKind::ObjectDetail",
     )
     missing = [token for token in required_local_semantics if token not in layout_cpp]
     if missing:
-        raise RuntimeError(f"Local visit mask lost XDBot addObject render semantics: {missing}")
+        raise RuntimeError(f"Companion export lost XDBot addObject semantics: {missing}")
 
 
 def sync_xdbot() -> None:
@@ -184,75 +176,6 @@ def pe_machine(data: bytes) -> int | None:
     return int.from_bytes(data[pe_offset + 4:pe_offset + 6], "little")
 
 
-def sync_spout() -> None:
-    info = CFG["spout"]
-
-    # Vendor the exact interface header that matches the packaged DLL. We use
-    # GetProcAddress for the factory, but the complete vtable is required for
-    # application-only sharing-mode controls such as SetShareMode/SetCPUshare.
-    header_url = (
-        f"https://raw.githubusercontent.com/leadedge/Spout2/{info['tag']}/"
-        "SPOUTSDK/SpoutLibrary/SpoutLibrary.h"
-    )
-    header_bytes = fetch(header_url)
-    header_text = header_bytes.decode("utf-8")
-    required_api = [
-        "virtual void SetShareMode(int mode) = 0;",
-        "virtual bool SetCPUmode(bool bCPU) = 0;",
-        "virtual bool SetMemoryShareMode(bool bMem = true) = 0;",
-        "virtual void SetAutoShare(bool bAuto = true) = 0;",
-        "virtual void SetCPUshare(bool bCPU = true) = 0;",
-        "virtual bool IsGLDXready() = 0;",
-    ]
-    missing_api = [token for token in required_api if token not in header_text]
-    if missing_api:
-        raise RuntimeError(f"Pinned SpoutLibrary.h is missing expected API: {missing_api}")
-    spout_vendor = ROOT / "vendor" / "spout"
-    spout_vendor.mkdir(parents=True, exist_ok=True)
-    (spout_vendor / "SpoutLibrary.h").write_bytes(header_bytes)
-
-    url = f"https://github.com/leadedge/Spout2/releases/download/{info['tag']}/{info['asset']}"
-    data = fetch(url)
-    with tempfile.TemporaryDirectory() as td:
-        zpath = pathlib.Path(td) / "spout.zip"
-        zpath.write_bytes(data)
-        with zipfile.ZipFile(zpath) as zf:
-            names = zf.namelist()
-            dlls = [n for n in names if pathlib.PurePosixPath(n).name.lower() == "spoutlibrary.dll"]
-            if not dlls:
-                raise RuntimeError("Spout release archive has no SpoutLibrary.dll")
-
-            # Do not trust archive folder names such as x64/Win32. Inspect every
-            # candidate PE header and select the actual AMD64 image (0x8664).
-            chosen = None
-            chosen_bytes = None
-            for name in dlls:
-                blob = zf.read(name)
-                if pe_machine(blob) == 0x8664:
-                    chosen = name
-                    chosen_bytes = blob
-                    break
-            if chosen is None or chosen_bytes is None:
-                raise RuntimeError("Spout release archive has no x64 SpoutLibrary.dll")
-
-            out = ROOT / "resources" / "spout" / "SpoutLibrary.dll"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(chosen_bytes)
-
-    license_url = f"https://raw.githubusercontent.com/leadedge/Spout2/{info['tag']}/LICENSE"
-    try:
-        license_bytes = fetch(license_url)
-    except Exception:
-        header = fetch(
-            f"https://raw.githubusercontent.com/leadedge/Spout2/{info['tag']}/SPOUTSDK/SpoutLibrary/SpoutLibrary.h"
-        ).decode("utf-8")
-        m = re.search(r"/\*\s*(Copyright.*?THIS SOFTWARE.*?DAMAGE\.\s*)\*/", header, re.S)
-        if not m:
-            raise
-        license_bytes = m.group(1).encode("utf-8")
-    (ROOT / "resources" / "licenses" / "Spout2-LICENSE.txt").write_bytes(license_bytes)
-
-
 def write_xdbot_credit() -> None:
     info = CFG["xdbot"]
     text = f"""XDBot / XDBotFork Layout Mode credits
@@ -267,17 +190,6 @@ Layout preprocessing, complete object classification tables, trigger exclusions 
     (ROOT / "resources" / "licenses" / "XDBotFork-CREDITS.txt").write_text(text, encoding="utf-8")
 
 
-def validate_pe_x64(dll: pathlib.Path) -> None:
-    if dll.stat().st_size < 100_000:
-        raise SystemExit("SpoutLibrary.dll looks truncated")
-    data = dll.read_bytes()
-    machine = pe_machine(data)
-    if machine is None:
-        raise SystemExit("SpoutLibrary.dll is not a valid PE image")
-    if machine != 0x8664:
-        raise SystemExit(f"SpoutLibrary.dll is not x64 (PE machine=0x{machine:04X})")
-
-
 def validate() -> None:
     paths = [
         ROOT / "vendor/xdbot/layout_mode.hpp",
@@ -285,9 +197,6 @@ def validate() -> None:
         ROOT / "vendor/xdbot/upstream/layout_mode.hpp",
         ROOT / "vendor/xdbot/upstream/layout_mode.cpp",
         ROOT / "vendor/xdbot/UPSTREAM.txt",
-        ROOT / "resources/spout/SpoutLibrary.dll",
-        ROOT / "vendor/spout/SpoutLibrary.h",
-        ROOT / "resources/licenses/Spout2-LICENSE.txt",
         ROOT / "resources/licenses/XDBotFork-CREDITS.txt",
     ]
     missing = [str(p.relative_to(ROOT)) for p in paths if not p.exists()]
@@ -303,17 +212,7 @@ def validate() -> None:
     if actual_hpp != expected_hpp or actual_cpp != expected_cpp:
         raise SystemExit("Adapted XDBot files do not exactly match the audited transform")
 
-    spout_header = (ROOT / "vendor/spout/SpoutLibrary.h").read_text(encoding="utf-8")
-    for token in (
-        "virtual void SetShareMode(int mode) = 0;",
-        "virtual bool SetCPUmode(bool bCPU) = 0;",
-        "virtual void SetCPUshare(bool bCPU = true) = 0;",
-    ):
-        if token not in spout_header:
-            raise SystemExit(f"Pinned SpoutLibrary.h API validation failed: {token}")
-
-    validate_pe_x64(ROOT / "resources/spout/SpoutLibrary.dll")
-    print("Dependency validation OK (audited XDBot transform + full Spout interface + x64 DLL)")
+    print("Dependency validation OK (audited XDBot transform)")
 
 
 def main() -> None:
@@ -322,7 +221,6 @@ def main() -> None:
     args = ap.parse_args()
     if not args.validate_only:
         sync_xdbot()
-        sync_spout()
         write_xdbot_credit()
     validate()
 

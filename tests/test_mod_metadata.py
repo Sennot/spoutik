@@ -27,6 +27,14 @@ class ModMetadataTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn("sdk: v5.8.2", workflow)
 
+    def test_companion_architecture_version_and_resources(self):
+        mod = json.loads((ROOT / "mod.json").read_text(encoding="utf-8"))
+        self.assertEqual(mod["version"], "v0.4.0")
+        self.assertEqual(mod["name"], "Layout Companion Bridge")
+        resources = mod["resources"]["files"]
+        self.assertIn("resources/licenses/XDBotFork-CREDITS.txt", resources)
+        self.assertFalse(any("Spout" in resource for resource in resources))
+
 
 if __name__ == "__main__":
     unittest.main()

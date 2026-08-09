@@ -21,7 +21,7 @@ jobs:
       - name: Test bootstrap and audited XDBot transform
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
-      - name: Fetch pinned XDBot Layout Mode and Spout2 binary
+      - name: Fetch pinned XDBot Layout Mode sources
         run: python tools/bootstrap_deps.py
 
       - name: Verify local source invariants
@@ -42,13 +42,34 @@ jobs:
           build-config: Release
           use-lto: true
 
-      - name: Prove Spout DLL is inside the built .geode
+      - name: Verify bridge-only .geode package
         shell: pwsh
         run: python tools/verify_geode_package.py '${{ steps.build.outputs.build-output }}'
 
       - name: Upload .geode
         uses: actions/upload-artifact@v4
         with:
-          name: SpoutLayoutDualView-Win64
+          name: LayoutCompanionBridge-Win64
           path: ${{ steps.build.outputs.build-output }}
+          if-no-files-found: error
+
+      - name: Build SDL3 + OpenGL companion
+        shell: pwsh
+        run: |
+          cmake -S companion -B companion/build -A x64
+          cmake --build companion/build --config Release --parallel
+
+      - name: Verify companion runtime files
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath 'companion/build/bin/LayoutCompanion.exe')) { throw 'LayoutCompanion.exe missing' }
+          if (-not (Test-Path -LiteralPath 'companion/build/bin/SDL3.dll')) { throw 'SDL3.dll missing' }
+
+      - name: Upload companion application
+        uses: actions/upload-artifact@v4
+        with:
+          name: LayoutCompanion-SDL3-Win64
+          path: |
+            companion/build/bin/LayoutCompanion.exe
+            companion/build/bin/SDL3.dll
           if-no-files-found: error

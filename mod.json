@@ -4,40 +4,20 @@
     "win": "2.2081"
   },
   "id": "spoutlayout.dualview",
-  "name": "Spout Layout Dual View",
-  "version": "v0.3.2",
+  "name": "Layout Companion Bridge",
+  "version": "v0.4.0",
   "developer": "YourName",
-  "description": "Layout locally, full GD frame over Spout2.",
+  "description": "Safe bridge for the Layout Companion app.",
   "resources": {
     "files": [
-      "resources/spout/SpoutLibrary.dll",
-      "resources/licenses/Spout2-LICENSE.txt",
       "resources/licenses/XDBotFork-CREDITS.txt"
     ]
   },
   "settings": {
     "enabled": {
       "type": "bool",
-      "name": "Enable dual view",
-      "description": "Send the normal decorated frame to Spout and display Layout Mode locally while a PlayLayer is active.",
-      "default": true
-    },
-    "sender-name": {
-      "type": "string",
-      "name": "Spout sender name",
-      "description": "Name shown in OBS Spout2 Capture.",
-      "default": "Geometry Dash Full"
-    },
-    "invert-spout": {
-      "type": "bool",
-      "name": "Invert Spout texture",
-      "description": "OpenGL framebuffers are normally inverted for Spout receivers.",
-      "default": true
-    },
-    "layout-player-view": {
-      "type": "bool",
-      "name": "Layout on game window",
-      "description": "Temporarily applies the XDBot Layout render mask to the authoritative scene only for the local backbuffer; no second physics world is created.",
+      "name": "Enable companion bridge",
+      "description": "Publish XDBot-classified screen geometry to the separate Layout Companion application.",
       "default": true
     }
   }

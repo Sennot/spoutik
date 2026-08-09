@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.0
+
+- Полностью удалён нестабильный in-process dual-render: Spout sender, FBO compositor, hooks `CCEGLView::swapBuffers`, `ShaderLayer::visit`, глобальный `CCNode::visit`, повторный `scene->visit` и все временные изменения объектов.
+- Добавлен read-only Geode bridge с versioned Windows shared-memory protocol и bounded seqlock.
+- Добавлен отдельный companion на SDL 3.4.10 + OpenGL compatibility context.
+- Overlay автоматически следует за client area Geometry Dash, остаётся click-through и скрывается вне стабильного PlayLayer.
+- OBS теперь захватывает неизменённый `GeometryDash.exe` через Game Capture; MegaHack и shader mods больше не зависят от порядка render hooks этого мода.
+- XDBot-классификация, special palette и viewport-spatial index сохранены; opacity/visibility/toggle декорированного мира намеренно не скрывают Layout-структуры.
+- IPC ограничен 125 Гц и 16 384 видимыми primitives, поэтому тяжёлые уровни не вызывают полный per-frame scan.
+
 ## v0.3.2
 
 - Removed the confirmed crashing private-Layout-FBO to default-framebuffer blit (`0xc0000374` immediately inside that boundary on the target NVIDIA context).

@@ -1,5 +1,7 @@
 # Spout Layout Dual View — Project Context
 
+> CURRENT OVERRIDE (v0.4.0): вся in-process Spout/FBO dual-render архитектура ниже является историей и не должна возвращаться. Текущий проект — read-only Geode shared-memory bridge плюс отдельный SDL3/OpenGL `LayoutCompanion.exe`. OBS захватывает неизменённый `GeometryDash.exe`, а click-through companion показывает Layout локально. Актуальное описание — в `README.md` и `changelog.md`.
+
 ## 1. Что это за проект
 
 Нужно разработать Geode-мод для **Geometry Dash 2.2081 на Windows x64**, который одновременно показывает два разных изображения одной игровой сессии:

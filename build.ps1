@@ -12,3 +12,6 @@ python tools/bootstrap_deps.py --validate-only
 
 cmake -S . -B build -A x64
 cmake --build build --config Release --parallel
+
+cmake -S companion -B companion/build -A x64
+cmake --build companion/build --config Release --parallel

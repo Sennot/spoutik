@@ -1,73 +1,19 @@
-# Validation notes
-
-Target: **Geometry Dash 2.2081, Geode v5.8.2, Windows x64**.
-
-## Checks included in the source
-
-### 1. Offline project invariants
+# Validation
 
 ```powershell
+python -m unittest discover -s tests -p 'test_*.py' -v
 python tools/verify_bindings.py
-```
-
-Checks the source shape itself, including:
-
-- `PlayLayer::init`, `PlayLayer::addObject` and cleanup hook signatures used by this project;
-- isolated Layout FBO preparation after the ordinary `CCDirector::drawScene` render;
-- a scene-visit/clear-free `CCEGLView::swapBuffers` path that only validates, composes, sends and swaps;
-- documented nonzero-FBO Spout gameplay send plus default-FBO/texture fallbacks;
-- strict scene, layer and frame-generation matching before composition;
-- complete pinned-XDBot serialized-record alignment with no runtime-position key;
-- binding live objects during the authoritative `PlayLayer::addObject` path;
-- full-object-list decoration masking without visible-cache dependence;
-- immediate XDBot main/detail coloring and same-frame restoration;
-- all six pinned XDBot special palette channels (BG/G1/G2/LINE/MG1/MG2);
-- absence of a second PlayLayer, gameplay tick, reset, checkpoint, input or audio path;
-- application-local Spout GPU texture mode forcing while retaining the sender for CPU-mode diagnosis;
-- Geode 5.8.2 / GD 2.2081 / Win64 CI target and resource declarations.
-
-### 2. XDBot transform audit
-
-```powershell
-python -m unittest discover -s tests -p "test_*.py" -v
+python tools/verify_upstream_bindings.py
 python tools/bootstrap_deps.py --validate-only
 ```
 
-After bootstrap, `--validate-only` rebuilds the expected adaptation from the pristine upstream copies and requires exact equality with the compiled `vendor/xdbot/layout_mode.hpp/.cpp`. It also compares the mirror-side `addObject` mutation sequence with the pinned XDBot hook and validates that `SpoutLibrary.dll` is a non-truncated PE x86-64 image.
+Проверки запрещают возвращение второго PlayLayer, `scene->visit`, framebuffer clear/blit/readback, Spout sender/compositor и глобальных render hooks. Отдельно проверяются exact XDBot transform, bounded protocol/seqlock, viewport query, read-only mapping companion и SDL3/OpenGL API.
 
-### 3. Live official Geode binding declarations
+GitHub Actions выполняет две настоящие Windows x64 сборки:
 
-CI runs:
+- `.geode` через Geode SDK v5.8.2 / Release + LTO;
+- `LayoutCompanion.exe` через Visual Studio 2022 и pinned SDL 3.4.10.
 
-```powershell
-python tools/verify_upstream_bindings.py
-```
+Финальная package-проверка требует XDBot credits и отклоняет старые `SpoutLibrary.dll`/Spout notices внутри `.geode`.
 
-This fetches the official `geode-sdk/bindings` files for GD 2.2081 and explicitly checks every method/member used by the current render path, including `PlayLayer::addObject`, GameObject main/detail color APIs, both ground layers, middleground sprites, ShaderLayer and `CCEGLView::swapBuffers`.
-
-### 4. Authoritative compiler check
-
-GitHub Actions then builds with **Clang/Ninja / Windows x64 / Geode v5.8.2** through `geode-sdk/build-geode-mod@main` in Release mode with LTO. This is the actual generated-binding and C++ ABI compile test.
-
-### 5. Final `.geode` package check
-
-After compilation:
-
-```powershell
-python tools/verify_geode_package.py <build-output>
-```
-
-The workflow opens the produced `.geode` and refuses the artifact unless the x64 `SpoutLibrary.dll`, Spout license, XDBot credits and `mod.json` are physically present.
-
-## What this sandbox cannot claim
-
-The local environment used to prepare this source does not provide a running Windows Geometry Dash + OBS + Spout stack, so runtime GPU interop, third-party mod ordering and actual level-by-level visual synchronization cannot be proven here. Those require launching the produced Win64 `.geode` in Geometry Dash. The source and public declarations can be checked here; the included GitHub Actions workflow performs the real Windows compile/package verification.
-
-## Geode version metadata
-
-`mod.json` uses `"geode": "5.8.2"` (without the Git tag prefix `v`); GitHub Actions still uses `sdk: v5.8.2`.
-
-
-## v0.1.5 single-world regression gates
-
-CI rejects any return of a second `PlayLayer::create` path or mirror calls to `update`, `resetLevel`, checkpoint APIs, or `handleButton`. It also verifies that the full SpoutLibrary 2.007.017 header is bootstrapped and that texture mode is requested with `SetShareMode(0)`, `SetCPUmode(false)`, `SetMemoryShareMode(false)`, `SetAutoShare(false)` and `SetCPUshare(false)`.
+Остающаяся runtime-граница: визуальную точность конкретных уровней и поведение overlay поверх fullscreen/windowed GD нужно проверять в запущенной игре. Protocol v1 передаёт геометрию, а не sprite-atlas textures.

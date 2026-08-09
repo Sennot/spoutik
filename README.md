@@ -1,141 +1,88 @@
-# Spout Layout Dual View
+# Layout Companion for Geometry Dash
 
-Windows-only Geode mod targeting **Geometry Dash 2.2081 / Geode v5.8.2**.
+Безопасная замена старой Spout/FBO-архитектуры для **Geometry Dash 2.2081 / Geode 5.8.2 / Windows x64**.
 
-## Result
+## Как теперь устроен вывод
 
-- **OBS / Spout2 Capture:** the normal Geometry Dash output — decorated level, camera effects, shaders, HUD, progress/CPS overlays, pause screens, editor, main menu and other mod UI that was actually drawn into the game framebuffer.
-- **Player's game window:** XDBot-style Layout Mode after three completed draws of a stable `PlayLayer` scene; entry/exit transitions remain entirely owned by Geometry Dash.
-- Outside gameplay, the game window is untouched and Spout behaves like full-game capture.
-
-## Render path
-
-The two outputs are isolated on the GPU rather than redrawing into the window during presentation:
-
-1. Geometry Dash performs its ordinary frame render once.
-2. Inside the `CCDirector::drawScene` hook, that decorated result is copied to a GPU texture. The same authoritative stable gameplay scene is then visited with the XDBot mask directly into the window backbuffer, and the completed Layout result is captured as a GPU baseline texture.
-3. HackMega's late UI draws naturally over that Layout frame, so the player's window contains Layout plus an interactive `absolllute.hackmega` overlay.
-4. At `CCEGLView::swapBuffers`, the final local presentation is copied to another GPU texture. An RGB-only difference against the Layout baseline is composed over the saved decorated texture into a second private FBO.
-5. Spout receives that composed decorated FBO with `SendFbo(fbo, width, height, ...)`, and the original `swapBuffers()` presents the already-finished local frame.
-
-`swapBuffers` never clears the default framebuffer and never visits a Cocos scene. Every prepared frame is tagged with its exact scene, `PlayLayer` and generation; transitions, teardown, changed viewports and stale frames fail closed to ordinary full-game Spout capture. Geode hook ordering is cooperative, so a native hook outside Geode can still bypass relative ordering guarantees.
-
-## Full XDBot Layout Mode integration
-
-Pinned source:
-
-- repository: `NakoMellia/XDBotFork`
-- commit: `3737fb2e98b8a10f0c40fa4a982f03c9991ce3f4`
-- files: `src/hacks/layout_mode.hpp`, `src/hacks/layout_mode.cpp`
-
-Run:
-
-```powershell
-python tools/bootstrap_deps.py
+```text
+GeometryDash.exe
+  ├─ обычный декорированный кадр → монитор / OBS Game Capture
+  └─ read-only данные камеры и объектов → shared memory
+                                             ↓
+                                  LayoutCompanion.exe
+                                  SDL3 + OpenGL Layout
 ```
 
-The bootstrap keeps pristine upstream copies under `vendor/xdbot/upstream/` and records SHA-256 hashes in `vendor/xdbot/UPSTREAM.txt`.
+Geode-мод больше не перерисовывает сцену, не меняет объекты и не вмешивается в OpenGL Geometry Dash. Поэтому shader/FBO-код других модов, переходы между сценами и интерфейс MegaHack остаются в обычном игровом окне.
 
-The compiled adaptation changes only two integration details:
+Companion получает ограниченный список экранных четырёхугольников через Windows shared memory и рисует Layout в собственном OpenGL-контексте. Передача ограничена 125 Гц и выбирает объекты только из текущего viewport, компактных списков GD и резервных camera sections — полного прохода тяжёлого уровня каждый кадр нет.
 
-1. XDBot's umbrella include is replaced by this project's small `xdbot_compat.hpp`.
-2. XDBot's global Geode hook wrapper is removed because applying it to the real `PlayLayer` would destroy the decorated world OBS needs. The actual implementation beginning at `LayoutMode::getModifiedString` is preserved verbatim; its output is converted into render metadata for the one authoritative `PlayLayer`.
+## Первый запуск
 
-CI verifies the transform against the pristine downloaded files and separately compares the local render mutation sequence against the pinned upstream `addObject` hook. The complete XDBot object sets (`excludedTriggerIDs`, `importantTriggerIDs`, `decoObjectIDs`, `solidObjectIDs`, colors, etc.) are therefore not retyped or shortened in this project.
+Из GitHub Actions скачай два artifact:
 
-## Exact single-PlayLayer mapping
+- `LayoutCompanionBridge-Win64` — установи `.geode` обычным способом;
+- `LayoutCompanion-SDL3-Win64` — держи `LayoutCompanion.exe` и `SDL3.dll` рядом.
 
-There is no hidden or secondary `PlayLayer`. Before the real `PlayLayer::init`, the mod runs the pinned XDBot transformation and compares its stable output subsequence with the decompressed original serialized records. Property `135` is normalized because it is the only per-object property XDBot adds or removes.
+Обычное отдельное окно:
 
-While the real decorated layer performs its ordinary `addObject` calls, each live `GameObject*` is bound to that precomputed record classification by object-ID occurrence order. This avoids the invalid runtime-position comparison used before v0.1.7 and preserves XDBot's exact decisions for removed deco, important groups, solids and hidden objects.
+```powershell
+.\LayoutCompanion.exe
+```
 
-During the local pass:
+Layout поверх окна Geometry Dash:
 
-- the complete exact map is compiled once into direct main/detail/glow node decisions; pooled particles are resolved only from their current camera owner;
-- ordinary nodes are masked inside the actual `CCNode::visit` traversal; batched sprites are handled from GD's current-frame vectors and camera-local spatial candidates because Cocos does not individually visit them;
-- removed nodes skip drawing, retained sprites receive scoped white/black color and XDBot's logical visible/opaque baseline, and the full classified level is never scanned per frame;
-- live gameplay toggle/disable flags and opacity updates are separated from decorated-world camera culling, so originally hidden/invisible structures can appear without changing the authoritative scene;
-- BG, G1, G2, LINE, MG1 and MG2 receive every special color from pinned XDBot `newColors`;
-- objects inside GD's shader z-range are visited directly from raw `m_inShaderObjectLayer`, so the decorated/black shader render-texture cannot cover the local Layout pass;
-- all touched fields, colors, opacity and visibility are restored in the same frame after the local redraw.
+```powershell
+.\LayoutCompanion.exe --overlay
+```
 
-## StartPos / practice design
+В overlay-режиме companion автоматически находит окно Geometry Dash по PID, повторяет размер его client area, остаётся поверх него и пропускает мышь/фокус в игру. Вне уровня overlay полностью скрывается. Закрыть его можно через консоль или завершив `LayoutCompanion.exe`.
 
-The decorated real `PlayLayer` is the only owner of physics, player state, inputs, StartPos, practice checkpoints, attempts, triggers, camera, FMOD and timing. The local Layout pass only changes render-visible fields around a second visit of that same scene. It never calls gameplay update/reset/checkpoint/audio functions.
+Дополнительный режим отдельного окна поверх остальных:
 
-## GPU / performance rules
+```powershell
+.\LayoutCompanion.exe --always-on-top
+```
 
-The sender path intentionally has no CPU frame extraction:
+## OBS и MegaHack
 
-- no `glReadPixels`;
-- no screenshots;
-- no software encoder;
-- no per-frame CPU pixel buffer;
-- decorated, Layout, final-presentation and composed-Spout pixels stay in four reusable GPU textures;
-- gameplay uses Spout's documented nonzero-FBO path `SendFbo(fbo, width, height, ...)`; menus/transitions use `SendFbo(0, 0, 0, ...)` as the safe fallback;
-- after sender initialization, the mod rejects only `GetCPU() == true`, which is Spout's actual sender sharing-method flag;
-- `GetGLDX()` is logged only as legacy NVIDIA `NV_DX_interop2` compatibility information; `false` is **not** treated as CPU fallback;
-- Release + LTO is enabled in GitHub Actions.
+В OBS используй **Game Capture / Захват игры** и выбери `GeometryDash.exe`. OBS получит настоящий декорированный кадр Geometry Dash с shaders, HUD и модовыми overlay. Отдельный companion в этот source не входит.
 
-Turning **Enable dual view** off also stops the mirror tick and local redraw for the current level.
+MegaHack продолжает открываться и принимать ввод в настоящем окне Geometry Dash. Click-through overlay только визуально закрывает его Layout-изображением; он не перехватывает управление.
 
-The unavoidable additional cost is one extra local scene visit plus indexed overrides for objects in the active camera sections. There is no second simulation and no per-frame scan of the full serialized level. The original decorated frame must still be rendered once because OBS needs it, so the local Layout output cannot honestly cost literally zero frame time on every level or mod stack.
+## Что реализовано в protocol v1
 
-For an RTX 3090 setup, put **GeometryDash.exe and OBS on the same RTX 3090** in Windows Graphics Settings / NVIDIA Control Panel; cross-adapter sharing is exactly what this design avoids.
+- точная классификация retained/deco из pinned XDBotFork `getModifiedString`;
+- белый/чёрный main/detail стиль retained-объектов;
+- XDBot background/ground/line palette;
+- screen-space transform с camera rotation/zoom через реальные Cocos node transforms;
+- игроки отдельными заметными primitives;
+- структуры экспортируются независимо от `visible`, opacity и toggle-состояния декорированного мира;
+- lock-free bounded seqlock, максимум 16 384 quads, явный счётчик truncation;
+- никаких texture readback, скриншотов или CPU-копий framebuffer.
 
-## Spout2 DLL inside `.geode`
+Protocol v1 — геометрический structural renderer: он уже даёт стабильный играбельный Layout, но пока не переносит оригинальные sprite-atlas UV/текстуры. Это намеренная следующая стадия, не повод снова внедрять рендер в Geometry Dash.
 
-The project pins **Spout2 2.007.017** and fetches x64 `SpoutLibrary.dll`. `mod.json` declares it under `resources.files`, so Geode packages it into the `.geode` resource archive.
+## Сборка
 
-Runtime loading is from `Mod::get()->getResourcesDir()` using `LoadLibraryW`; no Spout DLL needs to be placed beside `GeometryDash.exe` manually.
+Geode bridge:
 
-CI additionally opens the final `.geode` as an archive and fails the build unless it physically contains:
+```powershell
+$env:GEODE_SDK = 'C:\path\to\geode'
+python tools/bootstrap_deps.py
+cmake -S . -B build -A x64
+cmake --build build --config Release --parallel
+```
 
-- `SpoutLibrary.dll`;
-- `Spout2-LICENSE.txt`;
-- `XDBotFork-CREDITS.txt`;
-- `mod.json`.
+Companion (SDL 3.4.10 скачивается FetchContent):
 
-It also re-checks that the embedded DLL is PE x86-64.
+```powershell
+cmake -S companion -B companion/build -A x64
+cmake --build companion/build --config Release --parallel
+```
 
-See `SOURCE-MANIFEST.md` for exactly which files are first-party source and which pinned third-party files are materialized by bootstrap/CI.
+Готовые `LayoutCompanion.exe` и `SDL3.dll` будут в `companion/build/bin`.
 
-## GitHub Actions
+## XDBot credit
 
-`.github/workflows/build.yml` performs:
-
-1. pinned XDBot + Spout bootstrap;
-2. audited XDBot transform unit test;
-3. offline project invariant checks;
-4. live declaration checks against official Geode `bindings/main/bindings/2.2081`;
-5. x64 Spout DLL validation;
-6. Windows x64 Clang/Ninja build with `geode-sdk/build-geode-mod@main`, Geode `v5.8.2`, Release + LTO;
-7. final `.geode` package inspection;
-8. artifact upload as `SpoutLayoutDualView-Win64`.
-
-Before publishing, replace `"developer": "YourName"` in `mod.json`. You can also change the mod ID to your own namespace.
-
-## OBS
-
-Add an OBS **Spout2 Capture** source and select sender **Geometry Dash Full** (or your configured sender name). If the source is upside down, toggle `Invert Spout texture` in the mod settings.
-
-## Third-party mod compatibility
-
-The frame sent to Spout is intentionally captured from the already-rendered default framebuffer, so UI/HUD mods generally do not need explicit support.
-
-Starting with v0.1.5 there is **no hidden gameplay PlayLayer at all**. The real decorated PlayLayer is the only physics, practice, checkpoint, StartPos, camera and music authority. Since v0.1.7, the full pinned XDBot output is aligned to original serialized records before init and bound directly during the real layer's `addObject` calls. v0.2.2 applies those decisions at the actual Cocos node visit boundary plus a stable viewport query over an immutable spatial index for batched and originally invisible sprites, without scanning the full level. v0.3.2 keeps the transition guards but performs the extra visit only during a stable gameplay `drawScene`; `swapBuffers` is scene-free and cannot expose retained menu/transition frames or clear the window blue. The shader z-range is drawn from its raw object layer instead of replaying the decorated shader texture. A GPU RGB-only difference preserves HackMega's late overlay locally while Spout receives the decorated frame with the same late overlay pixels.
-
-## Credits / licensing
-
-- **XDBotFork / xdBot Layout Mode authors and contributors** — Layout preprocessing, object classification and trigger exclusion logic.
-- **Lynn Jarvis / Spout2 contributors** — Spout2 / SpoutLibrary GPU sharing.
-
-The inspected XDBotFork root at the pinned revision does not expose a license file in its repository listing, so this project does **not** invent or claim an MIT grant. Redistribution of the XDBot-derived material should follow the direct permission/license terms you received from its authors. Spout's license notice is bundled by the bootstrap.
-
-## Validation boundary
-
-This sandbox can verify the project structure, transform logic and the current public binding declarations, but it does not run Geometry Dash/OBS and does not contain a Windows + installed Geode runtime capable of launching the mod here. The authoritative binary check is therefore the included Windows GitHub Actions build. See `VALIDATION.md`.
-
-## Geode version metadata
-
-`mod.json` uses `"geode": "5.8.2"` (without the Git tag prefix `v`); GitHub Actions still uses `sdk: v5.8.2`.
+Layout preprocessing и полные classification tables взяты из `NakoMellia/XDBotFork`, commit `3737fb2e98b8a10f0c40fa4a982f03c9991ce3f4`. Преобразование исходников проверяется тестами; credits включены в `.geode`.
